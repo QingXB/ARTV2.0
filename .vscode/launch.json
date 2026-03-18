@@ -14,7 +14,7 @@
             "env": {
                 "DB_URL": "jdbc:postgresql://47.92.195.5:5432/art",
                 "DB_USERNAME": "art",
-                "DB_PASSWORD": "art12345"
+                "DB_PASSWORD": "art123456"
             }
         },
         {
