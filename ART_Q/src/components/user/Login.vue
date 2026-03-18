@@ -1,26 +1,56 @@
 <script setup>
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import request from '@/utils/request.js'
 
 const router = useRouter()
 const emit = defineEmits(['back', 'submit'])
 
+// 🌟 新增：请求状态控制，防止用户疯狂连击按钮
+const isLoading = ref(false)
+
 function onBack() {
-  // 兼容：既支持父组件监听 back，也支持直接路由返回
   emit('back')
   if (window.history.length > 1) router.back()
   else router.push('/')
 }
 
-function onSubmit(e) {
+async function onSubmit(e) {
   e.preventDefault()
+  
+  if (isLoading.value) return // 如果正在登录中，直接拦截请求
+
   const form = e.currentTarget
   const data = new FormData(form)
+  
+  // 1. 组装数据：把表单里的 username 映射为后端需要的 account
   const payload = {
-    username: String(data.get('username') ?? ''),
-    password: String(data.get('password') ?? ''),
-    remember: data.get('remember') === 'on',
+    account: String(data.get('username') ?? ''),
+    password: String(data.get('password') ?? '')
   }
-  emit('submit', payload)
+  const remember = data.get('remember') === 'on'
+
+  try {
+    isLoading.value = true
+    
+    // 2. 真正发送 Axios 请求到你的 Spring Boot
+    const token = await request.post('/api/users/login', payload)
+      // 根据是否勾选了“记住我”，存入不同的浏览器缓存中
+      if (remember) {
+        localStorage.setItem('token', token) // 关掉浏览器再次打开还在
+      } else {
+        sessionStorage.setItem('token', token) // 关掉标签页就失效
+      }
+
+      emit('submit', payload) // 兼容原有的提交事件
+      
+      // 跳转到工作台首页！
+      router.push('/') 
+    } catch (error) {
+    console.error("登录流程被拦截终止")
+  } finally {
+    isLoading.value = false // 无论成功失败，恢复按钮可点击状态
+  }
 }
 </script>
 
