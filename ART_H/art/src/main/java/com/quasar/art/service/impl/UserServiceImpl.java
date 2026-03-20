@@ -5,6 +5,9 @@ import com.quasar.art.dto.RegisterDTO;
 import com.quasar.art.entity.User;
 import com.quasar.art.repository.UserRepository;
 import com.quasar.art.util.Result;
+import com.quasar.art.vo.LoginVO;
+
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -15,7 +18,7 @@ public class UserServiceImpl {
     private UserRepository userRepository;
 
     // ==================== 1. 登录业务 ====================
-    public Result<String> login(LoginDTO loginDTO) {
+    public Result<LoginVO> login(LoginDTO loginDTO) {
         String account = loginDTO.getAccount();
         String password = loginDTO.getPassword();
         User user = null;
@@ -40,8 +43,14 @@ public class UserServiceImpl {
         }
 
         // 4. 登录成功，生成 Token
+       
         String mockToken = "quasar-auth-token-" + user.getId();
-        return Result.success(mockToken);
+        String userName = user.getUsername();
+        // 组装专门给前端的 VO
+        LoginVO loginVO = new LoginVO();
+        loginVO.setToken(mockToken);
+        loginVO.setToken(userName);
+        return Result.success(loginVO);
     }
 
     // ==================== 2. 注册业务 (接在登录下面) ====================

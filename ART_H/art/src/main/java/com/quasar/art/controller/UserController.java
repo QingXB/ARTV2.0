@@ -4,6 +4,8 @@ import com.quasar.art.dto.LoginDTO;
 import com.quasar.art.dto.RegisterDTO;
 import com.quasar.art.service.impl.UserServiceImpl;
 import com.quasar.art.util.Result;
+import com.quasar.art.vo.LoginVO;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,7 +20,7 @@ public class UserController {
     // ==================== 1. 登录接口 ====================
     // 访问路径: POST http://localhost:8080/api/users/login
     @PostMapping("/login")
-    public Result<String> login(@RequestBody LoginDTO loginDTO) {
+    public Result<LoginVO> login(@RequestBody LoginDTO loginDTO) {
         // 在最外层大门做个基础拦截，防止前端传个空包裹过来
         if (loginDTO.getAccount() == null || loginDTO.getPassword() == null) {
             return Result.error("账号和密码不能为空！");

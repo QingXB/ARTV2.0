@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const goLogin = () => router.push('/login')
+const goRegister = () => router.push('/register')
 </script>
 
 <template>
@@ -22,7 +23,7 @@ const goLogin = () => router.push('/login')
           <a href="#" class="nav-link">使用文档</a>
         </div>
         <div class="nav-right">
-          <a href="#" class="nav-link">注册账号</a>
+          <a href="#" class="nav-link" @click.prevent="goRegister">注册账号</a>
           <a href="#" class="nav-link login-btn" @click.prevent="goLogin">登录</a>
         </div>
       </nav>

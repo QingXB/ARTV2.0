@@ -31,26 +31,37 @@ async function onSubmit(e) {
   const remember = data.get('remember') === 'on'
 
   try {
-    isLoading.value = true
-    
-    // 2. 真正发送 Axios 请求到你的 Spring Boot
-    const token = await request.post('/api/users/login', payload)
-      // 根据是否勾选了“记住我”，存入不同的浏览器缓存中
-      if (remember) {
-        localStorage.setItem('token', token) // 关掉浏览器再次打开还在
-      } else {
-        sessionStorage.setItem('token', token) // 关掉标签页就失效
-      }
+  isLoading.value = true
+  
+  // 1. 因为拦截器的功劳，这里的 result 直接就是 { token: "Quasar", username: null }
+  const result = await request.post('/api/users/login', payload)
+  
+  // 2. 提取出真正的字符串
+  const actualToken = result.token;
+  // 如果 username 是 null，我们就临时拿 token 的值（Quasar）来当名字展示
+  const actualName = result.username || result.token; 
 
-      emit('submit', payload) // 兼容原有的提交事件
-      
-      // 跳转到工作台首页！
-      router.push('/') 
-    } catch (error) {
-    console.error("登录流程被拦截终止")
-  } finally {
-    isLoading.value = false // 无论成功失败，恢复按钮可点击状态
+  // 3. 存 Token（注意：只能存字符串，不能存完整的 result 对象）
+  if (remember) {
+    localStorage.setItem('token', actualToken) 
+  } else {
+    sessionStorage.setItem('token', actualToken) 
   }
+
+  // 4. 存名字，专门给工作台右上角展示用的！
+  localStorage.setItem('current_user', actualName);
+  
+  emit('submit', payload) 
+  
+  // 5. 完美起飞，跳转到工作台！
+  router.push('/workbench') 
+  
+} catch (error) {
+  // 💡 小技巧：把真实的 error 打印出来，以后再报错一眼就能看穿
+  console.error("登录流程被拦截终止，真实原因：", error)
+} finally {
+  isLoading.value = false 
+}
 }
 </script>
 
