@@ -10,4 +10,10 @@ public interface PaperService {
     Paper uploadPaper(MultipartFile file, Long userId);
     // 获取用户的文献列表
     List<Paper> getUserPapers(Long userId);
+    // 新增：根据文献 ID 重新触发 AI 解析
+    void triggerAiAnalysis(Long paperId);
+    // 新增：删除文献
+    void deletePaper(Long paperId);
+    // 新增：获取文献的 AI 解析结果
+    com.quasar.art.entity.Paper.PaperAiAnalysis getPaperAnalysis(Long paperId);
 }

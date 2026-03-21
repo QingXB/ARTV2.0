@@ -14,7 +14,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -25,6 +27,13 @@ public class PaperServiceImpl implements PaperService {
 
     @Autowired
     private RestTemplate restTemplate;
+
+    // 🌟 把你的 AI 解析 Repository 注入进来
+    @Autowired
+    private com.quasar.art.repository.Paper.PaperAiAnalysisRepository aiAnalysisRepository;
+    
+    @Value("${ai.python.api.url}")
+    private String pythonApiUrlConfig;
 
     // 从 application.properties 里读取配置的相对路径 ("./paper")
     @Value("${file.upload-dir}")
@@ -78,8 +87,7 @@ try {
     requestBody.put("file_path", absolutePath);
 
     // 3. 呼叫 Python 服务
-    String pythonApiUrl = "http://127.0.0.1:8000/api/ai/parse";
-    java.util.Map response = restTemplate.postForObject(pythonApiUrl, requestBody, java.util.Map.class);
+    Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
     
     // 4. 打印 Python 的回信
     System.out.println("🎉 收到 Python 的回信: " + response);
@@ -103,5 +111,94 @@ return paperRepository.save(paper);
         // 直接调用 Repository 里我们早就写好的方法，底层会自动生成 SQL 去查
         return paperRepository.findByUserId(userId);
     }
+
+    @Override
+    public void triggerAiAnalysis(Long paperId) {
+        // 1. 去数据库把这篇论文找出来
+        Paper paper = paperRepository.findById(paperId)
+                .orElseThrow(() -> new RuntimeException("找不到对应的文献数据！"));
+
+        // 2. 开启异步线程去呼叫 Python
+        new Thread(() -> {
+            try {
+                // 拼接出文件的绝对物理路径
+                Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+                Path targetLocation = uploadPath.resolve(paper.getFilePath());
+                String absolutePath = targetLocation.toAbsolutePath().toString();
+
+                System.out.println("🚀 [手动触发解析] 准备发送给 Python 的文件路径: " + absolutePath);
+
+                // 组装数据并发送给 Python
+                Map<String, String> requestBody = new HashMap<>();
+                requestBody.put("file_path", absolutePath);
+
+
+// ... 前面的发送请求代码 ...
+Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
+System.out.println("🎉 [手动触发解析] 收到 Python 的回信: " + response);
+
+// ====== 🌟 核心绝杀：解析回信并精准落库（适配你的 Repository） ======
+if (response != null && (Integer) response.get("code") == 200) {
+    // 1. 把 data 那一坨 Map 挖出来
+    Map<String, String> data = (Map<String, String>) response.get("data");
+
+    // 2. 查出旧数据，如果没有就 new 一个新的
+    com.quasar.art.entity.Paper.PaperAiAnalysis aiData = aiAnalysisRepository.findByPaperId(paperId);
+    if (aiData == null) {
+        aiData = new com.quasar.art.entity.Paper.PaperAiAnalysis();
+        aiData.setPaperId(paperId); // 只有新纪录才需要绑定 paperId
+    }
     
+    // 塞入 AI 提取的三个核心字段
+    aiData.setResearchQuestion(data.get("research_question"));
+    aiData.setMethodology(data.get("methodology"));
+    aiData.setConclusion(data.get("conclusion"));
+    
+    // 🌟 核心：用 Jackson 把原始 data 转成 JSON 字符串，存入你的 jsonb 字段
+    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+    aiData.setRawAiResponse(mapper.writeValueAsString(data));
+
+    // 保存到数据库
+    aiAnalysisRepository.save(aiData);
+
+    // 3. 把主表 (Paper) 的状态改为 2 (已解析)
+    paper.setParseStatus(2);
+    paperRepository.save(paper);
+
+    System.out.println("✅ [Java 线程] 完美入库！数据已成功落入 PostgreSQL，主表状态已更新为已解析！");
+} else {
+    System.err.println("⚠️ [Java 线程] Python 返回的状态码不是 200，解析可能异常！");
+}
+// ========================================
+
+} catch (Exception e) {
+System.err.println("❌ [手动触发解析] 呼叫 Python 失败或落库异常: " + e.getMessage());
+e.printStackTrace(); 
+}
+}).start();
+    }
+    @Override
+    public void deletePaper(Long paperId) {
+        // 1. 先查出这篇文献，我们需要拿到它的 filePath 才知道去硬盘哪里删
+        Paper paper = paperRepository.findById(paperId)
+                .orElseThrow(() -> new RuntimeException("找不到对应的文献数据！"));
+
+        // 2. 物理毁灭：去硬盘的 paper 文件夹里把它删掉
+        try {
+            Path filePath = Paths.get(uploadDir).resolve(paper.getFilePath()).normalize();
+            Files.deleteIfExists(filePath);
+            System.out.println("🗑️ 成功删除本地物理文件: " + filePath.toString());
+        } catch (IOException e) {
+            // 就算硬盘上没找到文件，也不要抛异常卡死，继续删数据库就行
+            System.err.println("⚠️ 物理文件删除失败或文件不存在: " + e.getMessage());
+        }
+
+        // 3. 抹除记录：从 PostgreSQL 数据库里删掉这行数据
+        paperRepository.deleteById(paperId);
+    }
+    @Override
+    public com.quasar.art.entity.Paper.PaperAiAnalysis getPaperAnalysis(Long paperId) {
+        // 直接调用你的 Repository 查出数据
+        return aiAnalysisRepository.findByPaperId(paperId);
+    }
 }

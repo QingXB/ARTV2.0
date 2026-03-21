@@ -13,7 +13,7 @@
           <div class="upload-section">
             <input type="file" ref="fileInput" multiple accept="application/pdf" @change="handleFileUpload" style="display: none;" />
             <button class="btn-upload" @click="triggerUpload" :disabled="isUploading">
-              <i class="icon-plus"></i> {{ isUploading ? '正在上传解析中...' : '上传 PDF 文献' }}
+              <i class="icon-plus"></i> {{ isUploading ? '正在上传中...' : '上传 PDF 文献' }}
             </button>
           </div>
   
@@ -27,11 +27,10 @@
                 @click="selectPaper(paper)"
               >
                 <div class="paper-title" :title="paper.title">{{ paper.title || '未知文献' }}</div>
-                <div class="paper-status"> <span class="badge" :class="paper.status === 1 ? 'success' : 'processing'">
-    {{ paper.status === 1 ? '已解析' : '解析中' }}
-  </span>
-  <span class="author">{{ paper.author || '未知作者' }}</span>
+                <div class="paper-status"> 
+  <button class="delete-btn" @click.stop="deletePaper(paper)">删除</button>
   
+  <button class="parse-btn" @click.stop="triggerParse(paper)">解析PDF</button>
   <button class="view-pdf-btn" @click.stop="viewPdf(paper)">查看原文</button>
 </div>
               </li>
@@ -110,12 +109,23 @@ onMounted(() => {
   }
 })
 
-// 3. 顺手写一个退出登录的方法
+
 const handleLogout = () => {
-  localStorage.removeItem('current_user') // 清除登录痕迹
-  alert('已退出登录')
-  router.push('/login') // 跳回登录页
+  // 1. 彻底销毁门票 (极其关键：同时兼顾 localStorage 和 sessionStorage 两种情况)
+  localStorage.removeItem('token')
+  sessionStorage.removeItem('token')
+  
+  // 2. 销毁用户信息痕迹
+  localStorage.removeItem('current_user') 
+
+  // 3. 爽快的提示
+  alert('已成功退出登录！')
+  
+  // 4. 此时兜里比脸还干净，保安绝对会痛快地放你回登录页
+  router.push('/login') 
 }
+
+
 
 // 📌 真实接口：查看 PDF 原文
 const viewPdf = (paper) => {
@@ -126,11 +136,144 @@ const viewPdf = (paper) => {
   }
 
   // 2. 拼接出后端的访问地址 (我们在 WebMvcConfig 里配好的映射规则)
-  const pdfUrl = `http://localhost:8080/pdf/${paper.filePath}`
+  const pdfUrl = `${import.meta.env.VITE_APP_PDF_URL}${paper.filePath}`
   
   // 3. 极其优雅：直接在浏览器新开一个页签展示 PDF，不影响当前的工作台页面！
   window.open(pdfUrl, '_blank')
 }
+// 📌 真实接口：手动触发后端去呼叫 Python 解析
+// 📌 真实接口：触发解析并开启自动侦听 (完整版)
+const triggerParse = async (paper) => {
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    
+    // 1. 立即反馈：让列表显示“解析中”
+    paper.status = 1 
+    
+    // 2. 发送请求给 Java
+    await request.post(`/api/papers/${paper.id}/parse`, {}, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+
+    console.log("🚀 解析任务已提交，启动自动侦听器...")
+
+    // 3. 🌟 开启定时侦听，直到后端“完美入库”
+    let retryCount = 0;
+    const maxRetries = 15; // 最多等 30 秒
+    
+    const checkStatus = setInterval(async () => {
+      retryCount++;
+      try {
+        const res = await request.get(`/api/papers/${paper.id}/analysis`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+
+        // 如果查到了数据，说明 Java 那边已经执行完 Repository.save 了
+        if (res && (res.researchQuestion || res.research_question)) {
+          console.log("✅ 侦测到后端入库成功！正在自动渲染...");
+          clearInterval(checkStatus);
+          
+          // 刷新列表（让 status 变成 2，变绿）
+          await fetchPapers();
+          
+          // 自动触发渲染右侧详情
+          selectPaper(paper); 
+        }
+      } catch (err) {
+        console.warn("侦听中遇到的微小异常:", err);
+      }
+
+      if (retryCount >= maxRetries) {
+        clearInterval(checkStatus);
+        console.log("⏳ 侦听超时，AI 可能还在思考，请稍后手动点击。");
+      }
+    }, 2000); // 每 2 秒拉取一次
+
+  } catch (error) {
+    console.error('触发解析失败:', error);
+    paper.status = 0; // 恢复状态
+    alert('解析触发失败，请检查网络或后端服务');
+  }
+}
+// 📌 真实接口：删除文献
+const deletePaper = async (paper) => {
+  // 危险操作，加一个二次确认防手抖
+  if (!confirm(`确定要彻底删除文献《${paper.title}》吗？物理文件也将被销毁！`)) {
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    
+    // 调用后端的删除接口
+    await request.delete(`/api/papers/${paper.id}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    
+    alert('✅ 删除成功！')
+    
+    // 🌟 核心操作：删除成功后，重新拉取一次列表，让页面上的这条数据消失
+    fetchPapers() 
+    
+  } catch (error) {
+    console.error('删除失败:', error)
+  }
+}
+// ==========================================
+// 2. 选中文献并拉取 AI 解析数据的方法（独立）
+// ==========================================
+// 📌 选中左侧文献时触发的方法 (真正发请求的防弹完全体)
+const selectPaper = async (paper) => {
+  // 1. 先把基础信息赋给当前选中项，并切回详情 Tab
+  // 🌟 核心修复点 1：把 paper 彻底解构重新赋值，强制触发 Vue 3 渲染！
+  selectedPaper.value = { ...paper };
+  activeTab.value = 'detail';
+  
+  // 2. 🌟 核心修复点 2：在获取新数据前，手动把 aiSummary 挂载一个"加载中"或"空"的初始状态
+  // 这样右侧页面会瞬间从旧数据切过来，显示"暂无解析数据"，体验极佳！
+  selectedPaper.value.aiSummary = null;
+
+  // 3. 🌟 核心修复点 3：防错保底。万一传入的 paper 本身是 null (比如 fetchPapers 里没取到第一篇)
+  if (!paper || !paper.id) {
+    console.warn("⚠️ 选中的 paper 为空或没有 ID，终止发请求。");
+    return;
+  }
+
+  // 4. 去后端拉取这篇文献的 AI 解析结果
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    // 调用 GET 接口拉取数据
+    // 🌟 核心修复点 4：加上防报错的可选链或逻辑判断！
+    const res = await request.get(`/api/papers/${paper.id}/analysis`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    console.log("👀 [极其重要] 查到的 AI 解析原始数据:", res);
+
+    // 🌟 核心修复点 5：因为拦截器剥过壳了，直接判断 res 本身存不存在！
+    // 之前报错就是因为没做 null 检查直接去 res.data 取值了！
+    if (res) {
+      // 字段名映射：把 Java 的驼峰命名，赋给前端的下划线模板
+      selectedPaper.value.aiSummary = {
+        research_question: res.researchQuestion, 
+        methodology: res.methodology,
+        conclusion: res.conclusion
+      }
+    } else {
+      // res 是 null，说明还没解析完成（异步还在跑）
+      // 这里可以打个日志，或者右侧继续显示"暂无解析数据"
+      console.log("⚠️ 还没解析完，所以查出来是 null。");
+      selectedPaper.value.aiSummary = null;
+    }
+    
+  } catch (error) {
+    console.error('获取 AI 解析数据失败:', error);
+    selectedPaper.value.aiSummary = null;
+  }
+}
+
+
   
   // 状态定义
   const fileInput = ref(null)
@@ -173,52 +316,44 @@ const fetchPapers = async () => {
   }
 }
   
-// 📌 接口预留 2：上传 PDF 并触发 AI 解析
+// 📌 纯上传逻辑：只负责存库和刷新列表
 const handleFileUpload = async (event) => {
   const files = event.target.files
   if (!files.length) return
 
   const formData = new FormData()
   for (let i = 0; i < files.length; i++) {
-    // 这里的 'file' 必须和 SpringBoot 里 @RequestParam("file") 的名字一模一样！
     formData.append('file', files[i]) 
   }
 
   try {
     isUploading.value = true
-    
-    // 1. 拿门票
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
-    // 2. 发送请求：直接用 request，写相对路径！
-    // 拦截器会自动帮我们扒掉 Axios 的外壳和 Result 的外壳
-    const savedPaper = await request.post('/api/papers/upload', formData, {
+    // 1. 发送上传请求
+    await request.post('/api/papers/upload', formData, {
       headers: { 
         'Content-Type': 'multipart/form-data', 
         'Authorization': `Bearer ${token}` 
       }
     })
     
-    // 3. 只要代码能走到这里，说明拦截器判定为 200 成功！
-    alert('🎉 文件上传成功，已保存到本地硬盘与数据库！')
-    console.log('后端返回的论文记录:', savedPaper) // 你可以在控制台看看这条存入数据库的数据
-    fetchPapers()
-    // fetchPapers() // TODO: 等查询接口写好了，这里解除注释就能刷新列表
+    // 2. 成功提示
+    alert('✅ 文献上传成功！点击列表中的“解析”按钮即可开始分析。')
+    
+    // 3. 🌟 关键：只刷新列表，不要去触发 selectPaper
+    await fetchPapers()
 
   } catch (error) {
-    // 4. 如果失败，拦截器会把它踹到这里，拦截器自己已经 alert 过错误信息了，这里只打印日志
-    console.error('上传失败，流程终止:', error)
+    console.error('上传失败:', error)
   } finally {
     isUploading.value = false
-    fileInput.value.value = '' // 清空 input 框，方便下次上传
+    fileInput.value.value = '' // 清空，方便下次上传
   }
 }
   
-  // 左侧点击文献
-  const selectPaper = (paper) => {
-    selectedPaper.value = paper
-    activeTab.value = 'detail'
-  }
+
+
   
   // 📌 接口预留 3：一键生成综述大纲
   const generateOutline = async () => {
@@ -375,14 +510,9 @@ const handleFileUpload = async (event) => {
     align-items: center;
     font-size: 12px;
   }
-  .badge {
-    padding: 2px 6px;
-    border-radius: 10px;
-    font-size: 11px;
-  }
+ 
   .badge.success { background: #e6f4ea; color: #1e8e3e; }
   .badge.processing { background: #fff0f0; color: #d93025; }
-  .author { color: #888; }
   
   /* 右侧解析区 */
   .right-panel {
@@ -511,5 +641,36 @@ const handleFileUpload = async (event) => {
 .view-pdf-btn:hover {
   background-color: #66b1ff;
   transform: translateY(-1px); /* 鼠标悬浮时微微上浮，手感极佳 */
+}
+.parse-btn {
+  margin-left: 10px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #fff;
+  background-color: #67c23a; /* 经典的 Element 绿色，代表处理/解析 */
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.parse-btn:hover {
+  background-color: #85ce61;
+  transform: translateY(-1px);
+}
+/* 删除按钮样式 */
+.delete-btn {
+  margin-left: 10px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #fff;
+  background-color: #f56c6c; /* Element 危险红 */
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.delete-btn:hover {
+  background-color: #f89898;
+  transform: translateY(-1px);
 }
   </style>
