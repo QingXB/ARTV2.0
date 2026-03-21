@@ -8,6 +8,7 @@ import com.quasar.art.util.Result;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import java.util.List; // 记得在文件顶部导包
 
 @RestController
 @RequestMapping("/api/papers")
@@ -51,6 +52,34 @@ public class PaperController {
 
         } catch (Exception e) {
             return Result.error("文件上传失败：" + e.getMessage());
+        }
+    }
+    @GetMapping("/list")
+    public Result<List<Paper>> getPaperList(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return Result.error("非法请求：未登录或 Token 丢失！");
+            }
+
+            // 1. 拿纯净 Token
+            String token = authHeader.substring(7); 
+            // 2. 提取用户名
+            String username = token.replace("quasar-auth-token-", "");
+
+            // 3. 去数据库查这个用户名对应的真实 User
+            User user = userRepository.findByUsername(username);
+            if (user == null) {
+                return Result.error("查无此人：非法的用户名！");
+            }
+
+            // 4. 去文献表里查该用户上传的所有文献
+            List<Paper> papers = paperService.getUserPapers(user.getId());
+            
+            return Result.success(papers);
+
+        } catch (Exception e) {
+            return Result.error("获取文献列表失败：" + e.getMessage());
         }
     }
 }

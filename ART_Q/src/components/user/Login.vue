@@ -14,6 +14,10 @@ function onBack() {
   if (window.history.length > 1) router.back()
   else router.push('/')
 }
+// 添加跳转到注册页的方法
+const goToRegister = () => {
+  router.push('/register') // 这里的 '/register' 要和你在 router/index.js 里配置的路径一致
+}
 
 async function onSubmit(e) {
   e.preventDefault()
@@ -121,7 +125,7 @@ async function onSubmit(e) {
 
           <p class="foot">
             还没有账号？
-            <a class="link" href="#" @click.prevent>去注册</a>
+            <a class="link" href="#" @click.prevent="goToRegister">去注册</a>
           </p>
         </form>
       </section>

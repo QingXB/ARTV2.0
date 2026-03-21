@@ -27,12 +27,13 @@
                 @click="selectPaper(paper)"
               >
                 <div class="paper-title" :title="paper.title">{{ paper.title || '未知文献' }}</div>
-                <div class="paper-status">
-                  <span class="badge" :class="paper.status === 1 ? 'success' : 'processing'">
-                    {{ paper.status === 1 ? '已解析' : '解析中' }}
-                  </span>
-                  <span class="author">{{ paper.author || '未知作者' }}</span>
-                </div>
+                <div class="paper-status"> <span class="badge" :class="paper.status === 1 ? 'success' : 'processing'">
+    {{ paper.status === 1 ? '已解析' : '解析中' }}
+  </span>
+  <span class="author">{{ paper.author || '未知作者' }}</span>
+  
+  <button class="view-pdf-btn" @click.stop="viewPdf(paper)">查看原文</button>
+</div>
               </li>
             </ul>
           </div>
@@ -115,6 +116,21 @@ const handleLogout = () => {
   alert('已退出登录')
   router.push('/login') // 跳回登录页
 }
+
+// 📌 真实接口：查看 PDF 原文
+const viewPdf = (paper) => {
+  // 1. 防错校验：如果数据库里没有文件路径，提示一下
+  if (!paper.filePath) {
+    alert('该文献暂时无法找到实体 PDF 文件！')
+    return
+  }
+
+  // 2. 拼接出后端的访问地址 (我们在 WebMvcConfig 里配好的映射规则)
+  const pdfUrl = `http://localhost:8080/pdf/${paper.filePath}`
+  
+  // 3. 极其优雅：直接在浏览器新开一个页签展示 PDF，不影响当前的工作台页面！
+  window.open(pdfUrl, '_blank')
+}
   
   // 状态定义
   const fileInput = ref(null)
@@ -131,32 +147,31 @@ const handleLogout = () => {
   }
   
   // 📌 接口预留 1：获取用户的文献库列表
-  const fetchPapers = async () => {
-    try {
-      // 真实接口：const res = await axios.get('http://localhost:8080/api/papers/list')
-      // 这里我为你写了一份高质量的假数据，方便你现在就能看到 UI 效果
-      papers.value = [
-        {
-          id: 1, title: 'Attention Is All You Need', author: 'Ashish Vaswani', status: 1,
-          aiSummary: {
-            research_question: '如何解决传统 RNN 在处理长序列序列时无法并行计算且存在长距离依赖丢失的问题？',
-            methodology: '提出了一种完全基于注意力机制（Self-Attention）的新型网络架构 Transformer，彻底摒弃了循环和卷积结构。',
-            conclusion: '在机器翻译任务上取得了 SOTA 结果，同时大幅减少了训练时间，证明了纯注意力机制的强大特征提取能力。'
-          }
-        },
-        {
-          id: 2, title: 'BERT: Pre-training of Deep Bidirectional Transformers', author: 'Jacob Devlin', status: 1,
-          aiSummary: {
-            research_question: '如何更好地利用无标注文本进行预训练，以获取深层的双向上下文语言表示？',
-            methodology: '基于 Transformer 编码器，提出了 Masked LM (MLM) 和 Next Sentence Prediction (NSP) 两种无监督预训练任务。',
-            conclusion: '在 11 项 NLP 核心任务上全面刷新纪录，开启了 NLP 的“预训练+微调”新范式。'
-          }
-        }
-      ]
-    } catch (error) {
-      console.error("获取文献列表失败", error)
+// 📌 真实接口 1：获取用户的文献库列表
+const fetchPapers = async () => {
+  try {
+    // 1. 拿到本地门票
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    // 2. 发起真实网络请求
+    const res = await request.get('/api/papers/list', {
+      headers: { 
+        'Authorization': `Bearer ${token}` 
+      }
+    });
+
+    // 3. 拦截器已经把 Result 外壳剥掉了，res 直接就是那个 List<Paper> 数组
+    papers.value = res; 
+    
+    // 默认选中列表里的第一篇论文（如果列表有数据的话）
+    if (papers.value && papers.value.length > 0) {
+      selectPaper(papers.value[0]);
     }
+
+  } catch (error) {
+    console.error("获取文献列表失败，错误详情:", error);
   }
+}
   
 // 📌 接口预留 2：上传 PDF 并触发 AI 解析
 const handleFileUpload = async (event) => {
@@ -187,7 +202,7 @@ const handleFileUpload = async (event) => {
     // 3. 只要代码能走到这里，说明拦截器判定为 200 成功！
     alert('🎉 文件上传成功，已保存到本地硬盘与数据库！')
     console.log('后端返回的论文记录:', savedPaper) // 你可以在控制台看看这条存入数据库的数据
-    
+    fetchPapers()
     // fetchPapers() // TODO: 等查询接口写好了，这里解除注释就能刷新列表
 
   } catch (error) {
@@ -481,4 +496,20 @@ const handleFileUpload = async (event) => {
     border-radius: 4px;
     cursor: pointer;
   }
+  /* 查看原文按钮样式 */
+.view-pdf-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #fff;
+  background-color: #409eff; /* 经典的 Element 蓝 */
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.view-pdf-btn:hover {
+  background-color: #66b1ff;
+  transform: translateY(-1px); /* 鼠标悬浮时微微上浮，手感极佳 */
+}
   </style>
