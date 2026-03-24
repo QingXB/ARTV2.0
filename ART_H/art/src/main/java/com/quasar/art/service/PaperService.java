@@ -16,4 +16,5 @@ public interface PaperService {
     void deletePaper(Long paperId);
     // 新增：获取文献的 AI 解析结果
     com.quasar.art.entity.Paper.PaperAiAnalysis getPaperAnalysis(Long paperId);
+    String generateOutline(List<Long> paperIds);
 }

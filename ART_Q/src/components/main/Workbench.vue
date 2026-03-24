@@ -65,23 +65,50 @@
           </div>
   
           <div v-if="activeTab === 'outline'" class="tab-content outline-view">
-            <div class="actions">
-              <p>基于当前文献库中的 {{ papers.length }} 篇文献，一键生成综述结构。</p>
-              <button class="btn-generate" @click="generateOutline" :disabled="isGenerating">
-                {{ isGenerating ? 'AI 正在疯狂思考中...' : '✨ 自动生成文献综述大纲' }}
+            
+            <div class="actions" v-if="!isSelectingPapers && !generatedOutline">
+              <p>基于文献库中已解析的文献，进行多文档观点碰撞，生成结构化综述。</p>
+              <button class="btn-generate" @click="startSelection">
+                ✨ 自动生成文献综述大纲
               </button>
             </div>
+
+            <div class="selection-panel actions" v-if="isSelectingPapers && !generatedOutline">
+              <h3>📑 请勾选需要参与综述的文献（至少2篇）</h3>
+              <p class="hint">注：只有“已解析”状态的文献才能参与多文档综述。</p>
+              
+              <div class="paper-checklist">
+                <div v-for="paper in papers" :key="paper.id" class="check-item" :class="{ disabled: paper.status !== 2 }">
+                  <input 
+                    type="checkbox" 
+                    :id="'chk-' + paper.id" 
+                    :value="paper.id" 
+                    v-model="selectedPaperIds"
+                    :disabled="paper.parseStatus !== 2"
+                  >
+                  <label :for="'chk-' + paper.id">
+                    {{ paper.title }} 
+                    <span v-if="paper.status !== 2" class="status-hint">(需先完成单篇解析)</span>
+                  </label>
+                </div>
+              </div>
+              
+              <div class="bottom-actions">
+                <button class="btn-cancel" @click="isSelectingPapers = false">取消返回</button>
+                <button class="btn-generate" @click="doGenerateOutline" :disabled="selectedPaperIds.length < 2 || isGenerating">
+                  {{ isGenerating ? '🧠 AI 疯狂融合思考中...' : `🚀 开始生成 (已选 ${selectedPaperIds.length} 篇)` }}
+                </button>
+              </div>
+            </div>
+
             <div class="outline-result" v-if="generatedOutline">
+              <div class="result-header">
+                <button class="btn-cancel" @click="resetOutline">🔄 重新选择文献</button>
+              </div>
               <pre>{{ generatedOutline }}</pre>
               <button class="btn-export">导出为 Markdown</button>
             </div>
-          </div>
-  
-          <div v-if="activeTab === 'graph'" class="tab-content graph-view">
-            <div class="empty-state">
-              🕸️ 知识图谱模块正在开发中... <br>
-              <span class="sub-text">(这里未来将渲染各论文间的传承与分歧网络)</span>
-            </div>
+
           </div>
   
         </main>
@@ -248,8 +275,7 @@ const selectPaper = async (paper) => {
     const res = await request.get(`/api/papers/${paper.id}/analysis`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    
-    console.log("👀 [极其重要] 查到的 AI 解析原始数据:", res);
+  
 
     // 🌟 核心修复点 5：因为拦截器剥过壳了，直接判断 res 本身存不存在！
     // 之前报错就是因为没做 null 检查直接去 res.data 取值了！
@@ -355,46 +381,55 @@ const handleFileUpload = async (event) => {
 
 
   
-  // 📌 接口预留 3：一键生成综述大纲
-  const generateOutline = async () => {
-    if (papers.value.length === 0) {
-      alert('文献库为空，请先上传文献！')
-      return
-    }
-    
-    try {
-      isGenerating.value = true
-      // 真实接口：
-      // const paperIds = papers.value.map(p => p.id)
-      // const res = await axios.post('http://localhost:8080/api/ai/generate-outline', { ids: paperIds })
-      
-      // 模拟大模型流式思考等待
-      await new Promise(resolve => setTimeout(resolve, 2500))
-      
-      generatedOutline.value = `
-  # 现代自然语言处理架构演进综述
-  
-  ## 1. 引言
-  近年来，深度学习在 NLP 领域取得了突破性进展。本文将对这一演进过程进行综述。
-  
-  ## 2. 现有方法分类探讨
-  ### 2.1 基础架构的颠覆：从 RNN 到 Transformer
-  传统的 RNN 存在并行化困难的问题 [1]。文献 [1] 提出的 Transformer 架构通过引入 Self-Attention 机制，彻底改变了序列建模的方式。
-  ### 2.2 预训练范式的崛起：双向上下文表示
-  在 Transformer 基础上，文献 [2] 提出了 BERT，通过 MLM 任务进一步挖掘了双向特征...
-  
-  ## 3. 争议与挑战
-  尽管预训练模型性能卓越，但其巨大的参数量带来的算力开销仍是亟待解决的核心痛点。
-  
-  ## 4. 未来研究方向
-  模型轻量化与多模态融合将成为下一阶段的核心趋势。
-      `.trim()
-    } catch (error) {
-      alert('生成失败！')
-    } finally {
-      isGenerating.value = false
-    }
+// 🌟 新增：用于控制页面状态的变量
+const isSelectingPapers = ref(false) // 是否正在显示打勾面板
+const selectedPaperIds = ref([])     // 存放用户打勾选中的论文 ID 数组
+
+// 1. 点击“✨ 自动生成文献综述大纲”触发，进入选择模式
+const startSelection = () => {
+  selectedPaperIds.value = [] // 每次打开先清空之前的选择
+  isSelectingPapers.value = true
+}
+
+// 2. 如果对结果不满意，点击重新选择文献
+const resetOutline = () => {
+  generatedOutline.value = ''
+  isSelectingPapers.value = true
+}
+
+// 3. 核心：勾选完毕后，点击“🚀 开始生成”触发
+const doGenerateOutline = async () => {
+  if (selectedPaperIds.value.length < 2) {
+    alert('为了进行观点交叉对比，请至少选择 2 篇已解析的文献！')
+    return
   }
+  
+  try {
+    isGenerating.value = true
+    
+    // 🔗 真实接口调用！
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    
+    // 注意：这里我们是发给 Java 的！Java 负责查库拼装，再转交给 Python。
+    // 请求体直接发数组：[1, 2, 3] 这种格式，或者 { paperIds: [...] } 看你 Java 怎么写
+    const res = await request.post('/api/papers/generate-outline', { 
+      paperIds: selectedPaperIds.value 
+    }, { 
+      headers: { 'Authorization': `Bearer ${token}` },
+      timeout: 150000 // 👈 就是这一行！10000毫秒 = 10秒
+    })
+    
+    // 拦截器一般会剥离外层，所以直接取 res.data 或者 res
+    generatedOutline.value = res.data || res;
+    
+  } catch (error) {
+    alert('生成失败，请检查网络或 Java 后端报错！')
+    console.error('综述生成异常:', error)
+  } finally {
+    isGenerating.value = false
+    isSelectingPapers.value = false // 生成完后隐藏选择面板
+  }
+}
   
   // 初始化时拉取列表
   onMounted(() => {
@@ -672,5 +707,76 @@ const handleFileUpload = async (event) => {
 .delete-btn:hover {
   background-color: #f89898;
   transform: translateY(-1px);
+}
+/* --- 文献勾选面板样式 --- */
+.selection-panel h3 {
+  margin-top: 0;
+  color: #2c3e50;
+  font-size: 18px;
+}
+.selection-panel .hint {
+  font-size: 13px;
+  color: #7f8c8d;
+  margin-bottom: 15px;
+}
+.paper-checklist {
+  text-align: left;
+  background: #f8fafc;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 15px;
+  max-height: 250px;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+.check-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed #ecf0f1;
+}
+.check-item:last-child {
+  border-bottom: none;
+}
+.check-item.disabled {
+  opacity: 0.5;
+}
+.check-item input[type="checkbox"] {
+  margin-right: 12px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.check-item label {
+  font-size: 14px;
+  color: #34495e;
+  cursor: pointer;
+  flex: 1;
+}
+.status-hint {
+  color: #e74c3c;
+  font-size: 12px;
+  margin-left: 10px;
+}
+.bottom-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.btn-cancel {
+  padding: 10px 20px;
+  background: #ecf0f1;
+  color: #7f8c8d;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.btn-cancel:hover {
+  background: #bdc3c7;
+}
+.result-header {
+  text-align: right;
+  margin-bottom: -10px;
 }
   </style>

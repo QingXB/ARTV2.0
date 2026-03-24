@@ -3,7 +3,7 @@ import axios from 'axios'
 // 1. 第一步：先创建实例（必须放在最前面！）
 const request = axios.create({
   baseURL: 'http://localhost:8080', 
-  timeout: 5000
+  timeout: 180000 //前端最长等待时间
 })
 
 // 2. 第二步：给已经创建好的 request 挂载拦截器

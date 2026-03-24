@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.List; // 记得在文件顶部导包
+import com.quasar.art.dto.OutlineRequestDTO; // 导入刚才建的 DTO
 
 @RestController
 @RequestMapping("/api/papers")
@@ -137,4 +138,12 @@ public class PaperController {
             return Result.error("获取解析详情失败：" + e.getMessage());
         }
     }
-}
+    @PostMapping("/generate-outline")
+    public Result<String> generateOutline(@RequestBody OutlineRequestDTO request) {
+        if (request.getPaperIds() == null || request.getPaperIds().size() < 2) {
+            return Result.error("至少需要 2 篇文献才能生成综述对比！");
+        }
+        String outlineMarkdown = paperService.generateOutline(request.getPaperIds());
+        return Result.success(outlineMarkdown);
+    }
+}   

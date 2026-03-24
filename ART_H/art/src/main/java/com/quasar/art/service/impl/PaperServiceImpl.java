@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ public class PaperServiceImpl implements PaperService {
     // 🌟 把你的 AI 解析 Repository 注入进来
     @Autowired
     private com.quasar.art.repository.Paper.PaperAiAnalysisRepository aiAnalysisRepository;
+    
     
     @Value("${ai.python.api.url}")
     private String pythonApiUrlConfig;
@@ -201,4 +203,81 @@ e.printStackTrace();
         // 直接调用你的 Repository 查出数据
         return aiAnalysisRepository.findByPaperId(paperId);
     }
+
+
+    @Override
+    public String generateOutline(List<Long> paperIds) {
+        // 1. 去主表查出用户勾选的所有文献基础信息
+        List<Paper> papers = paperRepository.findAllById(paperIds);
+        if (papers.isEmpty()) {
+            throw new RuntimeException("未找到选中的文献记录");
+        }
+
+        // 🌟 高级技巧：直接用 Map 动态组装给 Python 的 JSON 数据，免去新建 DTO 类的烦恼！
+        Map<String, Object> pythonRequest = new HashMap<>();
+        List<Map<String, String>> paperInfos = new ArrayList<>();
+
+        // 2. 遍历每一篇文献，去附表里捞出 AI 的解析结果
+        for (Paper paper : papers) {
+            // 防呆检查：只处理状态为 2 (已解析) 的文献
+            if (paper.getParseStatus() == null || paper.getParseStatus() != 2) {
+                continue; 
+            }
+
+            // 去附表查出这篇文献的 AI 提取精华
+            com.quasar.art.entity.Paper.PaperAiAnalysis analysis = aiAnalysisRepository.findByPaperId(paper.getId());
+            
+            // 如果附表没数据，跳过这篇
+            if (analysis == null) {
+                System.out.println("⚠️ 警告：文献 [" + paper.getTitle() + "] 状态为已解析，但未找到附表数据！");
+                continue;
+            }
+
+            // 将这篇文献的标题和三大核心要素塞进 Map
+            Map<String, String> info = new HashMap<>();
+            info.put("title", paper.getTitle());
+            info.put("research_question", analysis.getResearchQuestion());
+            info.put("methodology", analysis.getMethodology());
+            info.put("conclusion", analysis.getConclusion());
+            
+            paperInfos.add(info);
+        }
+
+        // 再次校验：如果筛掉无效文献后，剩下的不足 2 篇，拒绝呼叫大模型
+        if (paperInfos.size() < 2) {
+            throw new RuntimeException("有效的已解析文献不足 2 篇，无法进行多文档交叉对比！");
+        }
+
+        // 把列表装进最终的请求体中 -> {"papers": [{...}, {...}]}
+        pythonRequest.put("papers", paperInfos);
+
+        // 3. 跨语言呼叫 Python 微服务的综述接口
+        // 这里我们直接写死 Python 的综述接口地址，最稳妥！
+        String pythonUrl = "http://127.0.0.1:8000/api/ai/generate-outline";
+        
+        try {
+            System.out.println("🚀 正在呼叫 Python 微服务生成综述，共组装了 " + paperInfos.size() + " 篇文献精华...");
+            
+            // 发送 POST 请求，把 Map 自动转为 JSON 发过去
+            org.springframework.http.ResponseEntity<Map> response = restTemplate.postForEntity(pythonUrl, pythonRequest, Map.class);
+            
+            // 4. 解析 Python 的返回结果
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                Map<String, Object> body = response.getBody();
+                
+                if ((Integer) body.get("code") == 200) {
+                    System.out.println("✅ Python 综述生成成功！");
+                    return (String) body.get("data"); // 直接把漂亮的 Markdown 字符串返回给 Vue
+                } else {
+                    throw new RuntimeException("Python 业务逻辑报错: " + body.get("message"));
+                }
+            } else {
+                throw new RuntimeException("Python 服务无响应或状态码异常");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ 呼叫 Python 微服务生成综述失败: " + e.getMessage());
+            throw new RuntimeException("AI 综述生成失败，请检查 Python 服务是否在 8000 端口启动");
+        }
+    }
+    
 }
