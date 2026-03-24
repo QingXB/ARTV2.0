@@ -83,3 +83,25 @@ CREATE TABLE IF NOT EXISTS literature_reviews (
 
     CONSTRAINT fk_review_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+-- 1. 创建综述任务表
+CREATE TABLE IF NOT EXISTS review_tasks (
+    id              BIGSERIAL PRIMARY KEY,          -- 自增主键 (BIGSERIAL 对应 Java Long)
+    user_id         BIGINT NOT NULL,                -- 发起任务的用户ID
+    paper_ids       VARCHAR(255) NOT NULL,          -- 关联的文献ID字符串 (例如 "14,17,19")
+    status          INTEGER DEFAULT 0,              -- 任务状态: 0-待处理, 1-生成中, 2-成功, 3-失败
+    content         TEXT,                           -- 最终生成的 Markdown 综述内容
+    error_message   VARCHAR(500),                   -- 失败时的错误详细信息
+    created_at      TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- 创建时间
+    finished_at     TIMESTAMP WITHOUT TIME ZONE,    -- 完成时间
+    
+    -- 索引优化：用户经常查询自己的任务列表，加个索引提升查询速度
+    CONSTRAINT fk_user_task_index UNIQUE (id)
+);
+
+-- 2. 为 user_id 建立索引（因为前端轮询和列表查询都会用到这个字段）
+CREATE INDEX IF NOT EXISTS idx_review_tasks_user_id ON review_tasks(user_id);
+
+-- 3. 添加表和字段注释 (方便以后维护或同事看数据库)
+COMMENT ON TABLE review_tasks IS '多文献综述异步任务表';
+COMMENT ON COLUMN review_tasks.status IS '状态: 0-等待, 1-处理中, 2-成功, 3-失败';
+COMMENT ON COLUMN review_tasks.paper_ids IS '参与综述的文献ID集合，逗号分隔';

@@ -1,10 +1,14 @@
 package com.quasar.art.service.impl;
 
+
 import com.quasar.art.entity.Paper.Paper;
+import com.quasar.art.entity.Paper.ReviewTask;
 import com.quasar.art.repository.Paper.PaperRepository;
+import com.quasar.art.repository.Paper.ReviewTaskRepository;
 import com.quasar.art.service.PaperService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
@@ -14,11 +18,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class PaperServiceImpl implements PaperService {
@@ -33,6 +40,8 @@ public class PaperServiceImpl implements PaperService {
     @Autowired
     private com.quasar.art.repository.Paper.PaperAiAnalysisRepository aiAnalysisRepository;
     
+    @Autowired
+    private ReviewTaskRepository reviewTaskRepository;
     
     @Value("${ai.python.api.url}")
     private String pythonApiUrlConfig;
@@ -120,6 +129,11 @@ return paperRepository.save(paper);
         Paper paper = paperRepository.findById(paperId)
                 .orElseThrow(() -> new RuntimeException("找不到对应的文献数据！"));
 
+        // 🌟 核心优化 1：任务刚开始，先把状态改成 1 (解析中)，立刻存库！
+        // 这样前端一刷新就能看到“努力解析中...”的状态
+        paper.setParseStatus(1);
+        paperRepository.save(paper);
+
         // 2. 开启异步线程去呼叫 Python
         new Thread(() -> {
             try {
@@ -134,50 +148,57 @@ return paperRepository.save(paper);
                 Map<String, String> requestBody = new HashMap<>();
                 requestBody.put("file_path", absolutePath);
 
+                // 发送请求
+                Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
+                System.out.println("🎉 [手动触发解析] 收到 Python 的回信: " + response);
 
-// ... 前面的发送请求代码 ...
-Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
-System.out.println("🎉 [手动触发解析] 收到 Python 的回信: " + response);
+                // ====== 🌟 核心绝杀：解析回信并精准落库 ======
+                if (response != null && (Integer) response.get("code") == 200) {
+                    // 1. 把 data 那一坨 Map 挖出来
+                    Map<String, String> data = (Map<String, String>) response.get("data");
 
-// ====== 🌟 核心绝杀：解析回信并精准落库（适配你的 Repository） ======
-if (response != null && (Integer) response.get("code") == 200) {
-    // 1. 把 data 那一坨 Map 挖出来
-    Map<String, String> data = (Map<String, String>) response.get("data");
+                    // 2. 查出旧数据，如果没有就 new 一个新的
+                    com.quasar.art.entity.Paper.PaperAiAnalysis aiData = aiAnalysisRepository.findByPaperId(paperId);
+                    if (aiData == null) {
+                        aiData = new com.quasar.art.entity.Paper.PaperAiAnalysis();
+                        aiData.setPaperId(paperId); // 只有新纪录才需要绑定 paperId
+                    }
+                    
+                    // 塞入 AI 提取的三个核心字段
+                    aiData.setResearchQuestion(data.get("research_question"));
+                    aiData.setMethodology(data.get("methodology"));
+                    aiData.setConclusion(data.get("conclusion"));
+                    
+                    // 用 Jackson 把原始 data 转成 JSON 字符串，存入你的 jsonb 字段
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    aiData.setRawAiResponse(mapper.writeValueAsString(data));
 
-    // 2. 查出旧数据，如果没有就 new 一个新的
-    com.quasar.art.entity.Paper.PaperAiAnalysis aiData = aiAnalysisRepository.findByPaperId(paperId);
-    if (aiData == null) {
-        aiData = new com.quasar.art.entity.Paper.PaperAiAnalysis();
-        aiData.setPaperId(paperId); // 只有新纪录才需要绑定 paperId
-    }
-    
-    // 塞入 AI 提取的三个核心字段
-    aiData.setResearchQuestion(data.get("research_question"));
-    aiData.setMethodology(data.get("methodology"));
-    aiData.setConclusion(data.get("conclusion"));
-    
-    // 🌟 核心：用 Jackson 把原始 data 转成 JSON 字符串，存入你的 jsonb 字段
-    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-    aiData.setRawAiResponse(mapper.writeValueAsString(data));
+                    // 保存到数据库
+                    aiAnalysisRepository.save(aiData);
 
-    // 保存到数据库
-    aiAnalysisRepository.save(aiData);
+                    // 3. 🌟 成功！把主表 (Paper) 的状态改为 2 (已解析)
+                    paper.setParseStatus(2);
+                    paperRepository.save(paper);
 
-    // 3. 把主表 (Paper) 的状态改为 2 (已解析)
-    paper.setParseStatus(2);
-    paperRepository.save(paper);
+                    System.out.println("✅ [Java 线程] 完美入库！数据已成功落入 PostgreSQL，主表状态已更新为已解析！");
+                } else {
+                    // 🌟 核心优化 2：如果 Python 没返回 200，说明内容违规或大模型抽风
+                    // 直接主动抛出异常，让下面的 catch 块去处理失败状态！
+                    throw new RuntimeException("Python 返回异常状态码：" + response);
+                }
+                // ========================================
 
-    System.out.println("✅ [Java 线程] 完美入库！数据已成功落入 PostgreSQL，主表状态已更新为已解析！");
-} else {
-    System.err.println("⚠️ [Java 线程] Python 返回的状态码不是 200，解析可能异常！");
-}
-// ========================================
-
-} catch (Exception e) {
-System.err.println("❌ [手动触发解析] 呼叫 Python 失败或落库异常: " + e.getMessage());
-e.printStackTrace(); 
-}
-}).start();
+            } catch (Exception e) {
+                System.err.println("❌ [手动触发解析] 呼叫 Python 失败或落库异常: " + e.getMessage());
+                e.printStackTrace(); 
+                
+                // 🌟 核心优化 3：终极兜底逻辑！只要出现任何报错（网络断了、大模型超时等）
+                // 立刻把主表状态改成 3 (失败)，让前端显示红色错误并允许重试！
+                paper.setParseStatus(3);
+                paperRepository.save(paper);
+                System.out.println("⚠️ [Java 线程] 已将文献状态标记为 3 (解析失败)，等待用户重试。");
+            }
+        }).start();
     }
     @Override
     public void deletePaper(Long paperId) {
@@ -279,5 +300,57 @@ e.printStackTrace();
             throw new RuntimeException("AI 综述生成失败，请检查 Python 服务是否在 8000 端口启动");
         }
     }
+    // ================== 新增的异步任务逻辑 ==================
+
+@Override
+public ReviewTask createReviewTask(List<Long> paperIds) {
+    ReviewTask task = new ReviewTask();
+    // 假设当前用户ID是 1，如果是真实环境，请从 Token 或参数里取真实 userId
+    task.setUserId(1L); 
+    
+    // 把 List<Long> 转换成用逗号拼接的字符串，例如 "14,17"
+    String idsStr = paperIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+    task.setPaperIds(idsStr);
+    
+    task.setStatus(0); // 0: 等待中
+    return reviewTaskRepository.save(task); // 先存进数据库，立刻拿到生成的 ID
+}
+
+
+// 🌟 绝杀：@Async 注解让这个方法去后台线程悄悄跑，绝对不阻塞前端！
+@Async("taskExecutor") 
+@Override
+public void startAsyncGenerate(Long taskId, List<Long> paperIds) {
+    ReviewTask task = reviewTaskRepository.findById(taskId).orElse(null);
+    if (task == null) return;
+
+    try {
+        // 1. 更新状态为：1 (生成中)
+        task.setStatus(1);
+        reviewTaskRepository.save(task);
+
+        System.out.println("🚀 [后台异步线程] 开始呼叫 Python 生成综述，任务ID: " + taskId);
+
+        // 2. 🚨 这里直接复用你之前写的那个完美组装 Map 并用 RestTemplate 呼叫 Python 的逻辑！
+        // 因为代码太长，我这里用一行代替，你要把你之前写的 generateOutline() 里的核心代码搬到这里来！
+        String markdownResult = this.generateOutline(paperIds); // 直接调用你现成的同步方法
+
+        // 3. 成功后，更新状态为 2，并存入生成的超长文本
+        task.setContent(markdownResult);
+        task.setStatus(2);
+        task.setFinishedAt(LocalDateTime.now());
+        reviewTaskRepository.save(task);
+        
+        System.out.println("✅ [后台异步线程] 综述生成完毕并已成功入库！");
+
+    } catch (Exception e) {
+        // 4. 出现任何异常（比如超时报错），更新状态为 3，并记录报错信息
+        task.setStatus(3);
+        task.setErrorMessage(e.getMessage());
+        task.setFinishedAt(LocalDateTime.now());
+        reviewTaskRepository.save(task);
+        System.err.println("❌ [后台异步线程] 生成失败: " + e.getMessage());
+    }
+}
     
 }

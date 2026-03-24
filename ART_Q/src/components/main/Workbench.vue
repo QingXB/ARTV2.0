@@ -27,11 +27,24 @@
                 @click="selectPaper(paper)"
               >
                 <div class="paper-title" :title="paper.title">{{ paper.title || '未知文献' }}</div>
-                <div class="paper-status"> 
-  <button class="delete-btn" @click.stop="deletePaper(paper)">删除</button>
-  
-  <button class="parse-btn" @click.stop="triggerParse(paper)">解析PDF</button>
-  <button class="view-pdf-btn" @click.stop="viewPdf(paper)">查看原文</button>
+                <div class="paper-footer">
+  <div class="status-cell">
+    <span v-if="paper.parseStatus === 0" class="tag tag-gray">待解析</span>
+    <span v-if="paper.parseStatus === 1" class="tag tag-blue">⏳ 努力解析中...</span>
+    <span v-if="paper.parseStatus === 2" class="tag tag-green">✅ 已解析</span>
+    <span v-if="paper.parseStatus === 3" class="tag tag-red" title="大模型网络波动，请重试">❌ 解析失败</span>
+  </div>
+
+  <div class="action-buttons">
+    <button class="btn btn-primary" @click.stop="viewPdf(paper)">查看原文</button>
+
+    <button v-if="paper.parseStatus === 0" class="btn btn-action" @click.stop="triggerParse(paper)">解析 PDF</button>
+    <button v-if="paper.parseStatus === 1" class="btn btn-disabled" disabled>解析中...</button>
+    <button v-if="paper.parseStatus === 2" class="btn btn-success" disabled>解析完成</button>
+    <button v-if="paper.parseStatus === 3" class="btn btn-retry" @click.stop="triggerParse(paper)">🔄 重试解析</button>
+
+    <button class="btn btn-danger" @click.stop="deletePaper(paper)">删除</button>
+  </div>
 </div>
               </li>
             </ul>
@@ -74,32 +87,37 @@
             </div>
 
             <div class="selection-panel actions" v-if="isSelectingPapers && !generatedOutline">
-              <h3>📑 请勾选需要参与综述的文献（至少2篇）</h3>
-              <p class="hint">注：只有“已解析”状态的文献才能参与多文档综述。</p>
-              
-              <div class="paper-checklist">
-                <div v-for="paper in papers" :key="paper.id" class="check-item" :class="{ disabled: paper.status !== 2 }">
-                  <input 
-                    type="checkbox" 
-                    :id="'chk-' + paper.id" 
-                    :value="paper.id" 
-                    v-model="selectedPaperIds"
-                    :disabled="paper.parseStatus !== 2"
-                  >
-                  <label :for="'chk-' + paper.id">
-                    {{ paper.title }} 
-                    <span v-if="paper.status !== 2" class="status-hint">(需先完成单篇解析)</span>
-                  </label>
-                </div>
-              </div>
-              
-              <div class="bottom-actions">
-                <button class="btn-cancel" @click="isSelectingPapers = false">取消返回</button>
-                <button class="btn-generate" @click="doGenerateOutline" :disabled="selectedPaperIds.length < 2 || isGenerating">
-                  {{ isGenerating ? '🧠 AI 疯狂融合思考中...' : `🚀 开始生成 (已选 ${selectedPaperIds.length} 篇)` }}
-                </button>
-              </div>
-            </div>
+  <h3>📑 请勾选需要参与综述的文献（至少2篇）</h3>
+  <p class="hint">注：只有“已解析”状态的文献才能参与多文档综述。</p>
+  
+  <div class="paper-checklist">
+    <div v-for="paper in papers" :key="paper.id" class="check-item" :class="{ disabled: paper.parseStatus !== 2 }">
+      <input 
+        type="checkbox" 
+        :id="'chk-' + paper.id" 
+        :value="paper.id" 
+        v-model="selectedPaperIds"
+        :disabled="paper.parseStatus !== 2"
+      >
+      <label :for="'chk-' + paper.id">
+        {{ paper.title }} 
+        <span v-if="paper.parseStatus !== 2" class="status-hint">(需先完成单篇解析)</span>
+      </label>
+    </div>
+  </div>
+  
+  <div class="bottom-actions">
+    <button class="btn-cancel" @click="isSelectingPapers = false" :disabled="isGenerating">取消返回</button>
+    
+    <button class="btn-generate" @click="doGenerateOutline" :disabled="selectedPaperIds.length < 2 || isGenerating">
+      {{ isGenerating ? '🧠 AI 疯狂融合思考中...' : `🚀 开始生成 (已选 ${selectedPaperIds.length} 篇)` }}
+    </button>
+  </div>
+
+  <div v-if="isGenerating" style="margin-top: 15px; color: #ff9800; font-size: 14px; text-align: center;">
+    ⏳ 正在后台深度对比多篇文献。由于内容极长，通常需要 1~2 分钟，请耐心等待，大纲马上呈现...
+  </div>
+</div>
 
             <div class="outline-result" v-if="generatedOutline">
               <div class="result-header">
@@ -170,58 +188,70 @@ const viewPdf = (paper) => {
 }
 // 📌 真实接口：手动触发后端去呼叫 Python 解析
 // 📌 真实接口：触发解析并开启自动侦听 (完整版)
+// 假设你之前有一个拉取文献列表的方法叫 fetchPapers
 const triggerParse = async (paper) => {
   try {
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    // 1. 乐观更新：界面立刻变成“解析中”
+    paper.parseStatus = 1;
     
-    // 1. 立即反馈：让列表显示“解析中”
-    paper.status = 1 
-    
-    // 2. 发送请求给 Java
+    // 2. 发送解析请求给 Java
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     await request.post(`/api/papers/${paper.id}/parse`, {}, {
       headers: { 'Authorization': `Bearer ${token}` }
-    })
+    });
 
-    console.log("🚀 解析任务已提交，启动自动侦听器...")
-
-    // 3. 🌟 开启定时侦听，直到后端“完美入库”
-    let retryCount = 0;
-    const maxRetries = 15; // 最多等 30 秒
-    
-    const checkStatus = setInterval(async () => {
-      retryCount++;
+    // 3. 🌟 核心：开启“探子”轮询模式，每 3 秒查一次最新状态
+    const timer = setInterval(async () => {
       try {
-        const res = await request.get(`/api/papers/${paper.id}/analysis`, {
+        // 重新拉取一次文献列表
+        const res = await request.get('/api/papers/list', {
           headers: { 'Authorization': `Bearer ${token}` }
-        })
+        });
+        
+        // 找到当前正在解析的这篇文献的新数据
+        const papersList = res.data || res;
+        const updatedPaper = papersList.find(p => p.id === paper.id);
 
-        // 如果查到了数据，说明 Java 那边已经执行完 Repository.save 了
-        if (res && (res.researchQuestion || res.research_question)) {
-          console.log("✅ 侦测到后端入库成功！正在自动渲染...");
-          clearInterval(checkStatus);
-          
-          // 刷新列表（让 status 变成 2，变绿）
-          await fetchPapers();
-          
-          // 自动触发渲染右侧详情
-          selectPaper(paper); 
+        if (updatedPaper) {
+          // 实时将后台的新状态同步到前端视图上！
+          paper.parseStatus = updatedPaper.parseStatus;
+
+          // 🌟 侦测到状态变更，结束轮询！
+          if (paper.parseStatus === 2) {
+            clearInterval(timer); // 砸掉定时器
+            console.log(`文献 [${paper.title}] 解析成功！`);
+
+            // ==========================================
+            // 🌟 核心绝杀修改区：无刷新渲染右侧面板
+            // ==========================================
+            // 1. 将后台最新拉取到的包含解析内容的数据，无缝覆盖给当前的 paper 对象
+            Object.assign(paper, updatedPaper);
+
+            // 2. ⚠️ 注意：如果你的右侧面板是绑定在一个类似 activePaper 或 selectedPaper 的变量上，
+            // 并且当前右侧面板正在显示这篇刚解析完的文献，你需要让它也更新一下。
+            // 比如 (请把 activePaper 换成你实际使用的变量名)：
+            // if (activePaper.value && activePaper.value.id === paper.id) {
+            //   activePaper.value = { ...paper };
+            // }
+            // ==========================================
+
+          } else if (paper.parseStatus === 3) {
+            clearInterval(timer); // 砸掉定时器
+            console.error(`文献 [${paper.title}] 解析失败！`);
+            alert(`文献《${paper.title}》解析遇到网络波动，请点击“重试”按钮`);
+          }
         }
-      } catch (err) {
-        console.warn("侦听中遇到的微小异常:", err);
+      } catch (pollErr) {
+        console.error("轮询状态异常", pollErr);
       }
-
-      if (retryCount >= maxRetries) {
-        clearInterval(checkStatus);
-        console.log("⏳ 侦听超时，AI 可能还在思考，请稍后手动点击。");
-      }
-    }, 2000); // 每 2 秒拉取一次
+    }, 1000); // 每 3 秒问一次
 
   } catch (error) {
-    console.error('触发解析失败:', error);
-    paper.status = 0; // 恢复状态
-    alert('解析触发失败，请检查网络或后端服务');
+    console.error("触发解析失败", error);
+    paper.parseStatus = 3; // 如果刚点下去网络就断了，直接变失败
+    alert('请求发送失败，请检查网络');
   }
-}
+};
 // 📌 真实接口：删除文献
 const deletePaper = async (paper) => {
   // 危险操作，加一个二次确认防手抖
@@ -298,6 +328,8 @@ const selectPaper = async (paper) => {
     selectedPaper.value.aiSummary = null;
   }
 }
+
+
 
 
   
@@ -397,7 +429,7 @@ const resetOutline = () => {
   isSelectingPapers.value = true
 }
 
-// 3. 核心：勾选完毕后，点击“🚀 开始生成”触发
+// 3. 核心：异步提交并轮询进度
 const doGenerateOutline = async () => {
   if (selectedPaperIds.value.length < 2) {
     alert('为了进行观点交叉对比，请至少选择 2 篇已解析的文献！')
@@ -406,28 +438,75 @@ const doGenerateOutline = async () => {
   
   try {
     isGenerating.value = true
+    generatedOutline.value = '' // 清空之前的结果
     
-    // 🔗 真实接口调用！
     const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    const headers = { 'Authorization': `Bearer ${token}` }
     
-    // 注意：这里我们是发给 Java 的！Java 负责查库拼装，再转交给 Python。
-    // 请求体直接发数组：[1, 2, 3] 这种格式，或者 { paperIds: [...] } 看你 Java 怎么写
-    const res = await request.post('/api/papers/generate-outline', { 
+    // ==========================================
+    // 第一步：提交任务，秒拿“取餐牌” (Task ID)
+    // ==========================================
+    const submitRes = await request.post('/api/papers/generate-async', { 
       paperIds: selectedPaperIds.value 
-    }, { 
-      headers: { 'Authorization': `Bearer ${token}` },
-      timeout: 150000 // 👈 就是这一行！10000毫秒 = 10秒
-    })
+    }, { headers })
     
-    // 拦截器一般会剥离外层，所以直接取 res.data 或者 res
-    generatedOutline.value = res.data || res;
+    // 根据你的 axios 拦截器，这里拿到的是后端的 Result.success(taskId)
+    // 假设直接解构出 taskId
+    const taskId = submitRes.data || submitRes
     
+    if (!taskId) {
+      throw new Error("未能从后端获取到任务ID")
+    }
+    
+    console.log(`✅ 任务提交成功！拿到取餐牌：TaskID = ${taskId}，开始轮询...`)
+
+    // ==========================================
+    // 第二步：开启定时器，每 5 秒问一次后台“做好了没”
+    // ==========================================
+    let pollCount = 0
+    const maxPolls = 60 // 最多问 60 次 (5秒 * 60 = 5分钟)，防止死循环
+    
+    const timer = setInterval(async () => {
+      pollCount++
+      
+      try {
+        // 去问 Java 这个任务的状态
+        const statusRes = await request.get(`/api/papers/task-status/${taskId}`, { headers })
+        const task = statusRes.data || statusRes // 拿到 ReviewTask 对象
+        
+        if (task.status === 2) { 
+          // 🟢 状态 2：生成成功！
+          clearInterval(timer) // 砸掉定时器
+          generatedOutline.value = task.content // 把 Markdown 渲染到页面上
+          isGenerating.value = false
+          isSelectingPapers.value = false // 隐藏多选面板
+          console.log("🎉 轮询结束，大模型生成成功！")
+          
+        } else if (task.status === 3) { 
+          // 🔴 状态 3：生成失败
+          clearInterval(timer)
+          alert('AI 生成失败: ' + (task.errorMessage || '大模型开小差了'))
+          isGenerating.value = false
+          
+        } else if (pollCount >= maxPolls) { 
+          // 🟡 超过 5 分钟还没好，放过前端吧
+          clearInterval(timer)
+          alert('AI 思考时间太长，请稍后刷新页面查看历史记录。')
+          isGenerating.value = false
+        }
+        // 如果 status 是 0 (等待) 或 1 (处理中)，啥也不干，让它接着转圈圈
+        
+      } catch (pollError) {
+        console.error('轮询请求异常:', pollError)
+        // 网络偶尔抖动可以不砸定时器，让它继续尝试
+      }
+      
+    }, 5000) // 5000 毫秒 = 5 秒去问一次
+
   } catch (error) {
-    alert('生成失败，请检查网络或 Java 后端报错！')
-    console.error('综述生成异常:', error)
-  } finally {
+    alert('提交综述任务失败，请检查网络或后端报错！')
+    console.error('综述提交异常:', error)
     isGenerating.value = false
-    isSelectingPapers.value = false // 生成完后隐藏选择面板
   }
 }
   
@@ -779,4 +858,96 @@ const doGenerateOutline = async () => {
   text-align: right;
   margin-bottom: -10px;
 }
+/* 基础按钮样式 (你原有的可以保留，这里补充特殊状态) */
+.disabled-btn {
+  background-color: #cbd5e1 !important; /* 灰色 */
+  color: #64748b !important;
+  cursor: not-allowed !important;
+  border: none;
+}
+
+.success-btn {
+  background-color: #ecfdf5 !important; /* 浅绿色 */
+  color: #10b981 !important;
+  border: 1px solid #10b981 !important;
+  cursor: default !important;
+}
+
+.retry-btn {
+  background-color: #fef2f2 !important; /* 浅红色 */
+  color: #ef4444 !important;
+  border: 1px solid #ef4444 !important;
+  cursor: pointer;
+}
+.retry-btn:hover {
+  background-color: #fee2e2 !important;
+}
+
+/* 状态标签样式 */
+.tag-gray { color: #64748b; font-size: 13px; }
+.tag-blue { color: #3b82f6; font-size: 13px; font-weight: bold; }
+.tag-green { color: #10b981; font-size: 13px; font-weight: bold; }
+.tag-red { color: #ef4444; font-size: 13px; font-weight: bold; }
+/* --- 卡片底部布局 --- */
+.paper-footer {
+  display: flex;
+  justify-content: space-between; /* 左右两端对齐 */
+  align-items: center;            /* 垂直居中 */
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px dashed #e2e8f0; /* 加一条虚线分割更好看 */
+  gap: 10px;                      /* 防止左右撞车 */
+}
+
+/* --- 状态标签区 --- */
+.status-cell {
+  flex-shrink: 0;                 /* 🌟 核心：绝对不允许被挤压缩小 */
+  white-space: nowrap;            /* 🌟 核心：绝对不允许文字换行 */
+}
+
+.tag {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+.tag-gray { color: #64748b; }
+.tag-blue { color: #3b82f6; }
+.tag-green { color: #10b981; }
+.tag-red { color: #ef4444; }
+
+/* --- 按钮组布局 --- */
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;                       /* 按钮之间的间距 */
+  flex-wrap: wrap;                /* 如果屏幕实在太小，按钮允许换行显示 */
+  justify-content: flex-end;
+}
+
+/* --- 统一按钮颜值 --- */
+.btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;             /* 统一圆角 */
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;            /* 按钮文字也不允许换行 */
+}
+
+.btn-primary { background: #3b82f6; color: white; }
+.btn-primary:hover { background: #2563eb; }
+
+.btn-action { background: #f8fafc; border-color: #cbd5e1; color: #334155; }
+.btn-action:hover { background: #f1f5f9; border-color: #94a3b8; }
+
+.btn-danger { background: #fef2f2; border-color: #fca5a5; color: #ef4444; }
+.btn-danger:hover { background: #fee2e2; }
+
+.btn-disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+.btn-success { background: #ecfdf5; border-color: #6ee7b7; color: #10b981; cursor: default; }
+
+.btn-retry { background: #fff0f2; border-color: #fda4af; color: #e11d48; font-weight: bold; }
+.btn-retry:hover { background: #ffe4e6; }
   </style>

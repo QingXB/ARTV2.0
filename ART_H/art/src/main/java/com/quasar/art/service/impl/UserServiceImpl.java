@@ -49,7 +49,7 @@ public class UserServiceImpl {
         // 组装专门给前端的 VO
         LoginVO loginVO = new LoginVO();
         loginVO.setToken(mockToken);
-        loginVO.setToken(userName);
+        loginVO.setUsername(userName); // 🌟 改成 setUsername
         return Result.success(loginVO);
     }
 

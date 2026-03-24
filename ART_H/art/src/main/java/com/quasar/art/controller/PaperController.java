@@ -19,9 +19,6 @@ public class PaperController {
     @Autowired
     private PaperService paperService;
 
-    // 🌟 注入 UserRepository，用来查字典
-    @Autowired
-    private UserRepository userRepository;
 
     @PostMapping("/upload")
     public Result<Paper> uploadPaper(
@@ -35,22 +32,19 @@ public class PaperController {
             // 1. 拿到纯净的 token 字符串
             String token = authHeader.substring(7); 
 
-            // 2. 提取出用户名 (假设你的 token 是 "quasar-auth-token-Quasar" 或者直接就是 "Quasar")
-            String username = token.replace("quasar-auth-token-", "");
+            // 2. 🌟 提取出真实的数字 ID 字符串 (例如剥离后剩下 "1")
+            String userIdStr = token.replace("quasar-auth-token-", "");
 
-            // 3. 🌟 核心转变：去数据库查这个用户名到底是谁！
-            User user = userRepository.findByUsername(username);
-            if (user == null) {
-                return Result.error("查无此人：非法的用户名！");
-            }
+            // 3. 🌟 将字符串转成纯数字 Long 类型
+            Long currentUserId = Long.parseLong(userIdStr);
 
-            // 4. 拿到真实的数字 ID
-            Long currentUserId = user.getId();
-
-            // 5. 存入数据库
+            // 4. 🚀 直接拿着 ID 去上传存库！跳过 User 表查询，性能拉满！
             Paper savedPaper = paperService.uploadPaper(file, currentUserId);
             return Result.success(savedPaper);
 
+        } catch (NumberFormatException e) {
+            // 防呆校验：如果前端乱传 Token，抠出来的不是纯数字，直接拦截
+            return Result.error("身份验证失败：非法的 Token 标识！");
         } catch (Exception e) {
             return Result.error("文件上传失败：" + e.getMessage());
         }
@@ -65,24 +59,24 @@ public class PaperController {
 
             // 1. 拿纯净 Token
             String token = authHeader.substring(7); 
-            // 2. 提取用户名
-            String username = token.replace("quasar-auth-token-", "");
+            
+            // 2. 🌟 提取真正的 ID (剥去前缀)
+            String userIdStr = token.replace("quasar-auth-token-", "");
 
-            // 3. 去数据库查这个用户名对应的真实 User
-            User user = userRepository.findByUsername(username);
-            if (user == null) {
-                return Result.error("查无此人：非法的用户名！");
-            }
+            // 3. 将提取出来的字符串转换为 Long 类型
+            Long userId = Long.parseLong(userIdStr);
 
-            // 4. 去文献表里查该用户上传的所有文献
-            List<Paper> papers = paperService.getUserPapers(user.getId());
+            // 4. 🌟 直接拿 ID 去查用户的文献！(甚至都不需要去查 User 表验证了，少查一次数据库，性能翻倍！)
+            List<Paper> papers = paperService.getUserPapers(userId);
             
             return Result.success(papers);
 
+        } catch (NumberFormatException e) {
+            // 如果提取出来的不是数字，说明 Token 被乱改了
+            return Result.error("Token格式异常：非法的身份标识！");
         } catch (Exception e) {
             return Result.error("获取文献列表失败：" + e.getMessage());
         }
-        
     }
     // 🌟 新增：手动触发解析的接口
     @PostMapping("/{id}/parse")
@@ -146,4 +140,17 @@ public class PaperController {
         String outlineMarkdown = paperService.generateOutline(request.getPaperIds());
         return Result.success(outlineMarkdown);
     }
+    // 1. 提交任务：前端点按钮后调这个
+@PostMapping("/generate-async")
+public Result<Long> submitTask(@RequestBody OutlineRequestDTO request) {
+    // 创建一条状态为 0 的任务记录并存入数据库
+    ReviewTask task = paperService.createReviewTask(request.getPaperIds());
+    // 🌟 异步执行真正的 AI 生成逻辑（不等待，直接往下走）
+    paperService.startAsyncGenerate(task.getId(), request.getPaperIds());
+    // 返回任务 ID 给前端
+    return Result.success(task.getId());
+}
+
+
+
 }   

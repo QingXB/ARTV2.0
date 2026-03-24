@@ -3,7 +3,9 @@ package com.quasar.art.service;
 import java.util.List;
 
 import org.springframework.web.multipart.MultipartFile;
+
 import com.quasar.art.entity.Paper.Paper;
+import com.quasar.art.entity.Paper.ReviewTask;
 
 public interface PaperService {
     // 处理文件上传并保存到数据库
@@ -17,4 +19,11 @@ public interface PaperService {
     // 新增：获取文献的 AI 解析结果
     com.quasar.art.entity.Paper.PaperAiAnalysis getPaperAnalysis(Long paperId);
     String generateOutline(List<Long> paperIds);
+    // 1. 创建异步任务
+    ReviewTask createReviewTask(List<Long> paperIds);
+
+// 2. 异步执行大模型呼叫
+    void startAsyncGenerate(Long taskId, List<Long> paperIds);
+
+
 }
