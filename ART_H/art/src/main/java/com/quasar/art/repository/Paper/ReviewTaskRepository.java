@@ -9,6 +9,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ReviewTaskRepository extends JpaRepository<ReviewTask, Long> {
-    // 🌟 数据隔离：只查当前用户的任务，并按创建时间倒序排
-    List<ReviewTask> findByUserIdOrderByCreatedAtDesc(Long userId);
+// 🌟 新增：根据用户ID查历史记录，按创建时间倒序排
+List<ReviewTask> findByUserIdOrderByCreatedAtDesc(Long userId);
 }

@@ -1,8 +1,7 @@
 package com.quasar.art.controller;
 
 import com.quasar.art.entity.Paper.*;
-import com.quasar.art.entity.User;
-import com.quasar.art.repository.UserRepository;
+import com.quasar.art.repository.Paper.ReviewTaskRepository;
 import com.quasar.art.service.PaperService;
 import com.quasar.art.util.Result;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +17,9 @@ public class PaperController {
 
     @Autowired
     private PaperService paperService;
+
+    @Autowired
+    private ReviewTaskRepository reviewTaskRepository;
 
 
     @PostMapping("/upload")
@@ -141,16 +143,70 @@ public class PaperController {
         return Result.success(outlineMarkdown);
     }
     // 1. 提交任务：前端点按钮后调这个
-@PostMapping("/generate-async")
-public Result<Long> submitTask(@RequestBody OutlineRequestDTO request) {
-    // 创建一条状态为 0 的任务记录并存入数据库
-    ReviewTask task = paperService.createReviewTask(request.getPaperIds());
-    // 🌟 异步执行真正的 AI 生成逻辑（不等待，直接往下走）
-    paperService.startAsyncGenerate(task.getId(), request.getPaperIds());
-    // 返回任务 ID 给前端
-    return Result.success(task.getId());
-}
+    @PostMapping("/generate-async")
+    public Result<Long> submitTask(
+            @RequestBody OutlineRequestDTO request,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) { // 🌟 加上请求头
+        
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return Result.error("非法请求：未登录！");
+        }
 
+        // 🌟 抠出真实的 userId
+        String token = authHeader.substring(7);
+        Long userId = Long.parseLong(token.replace("quasar-auth-token-", ""));
 
+        // 🌟 把 userId 传给 Service！(注意这里多了一个参数)
+        ReviewTask task = paperService.createReviewTask(request.getPaperIds(), userId);
+        
+        paperService.startAsyncGenerate(task.getId(), request.getPaperIds());
+        return Result.success(task.getId());
+    }
 
+// ==========================================
+    // 🌟 核心补齐：异步生成综述：第二步（前端轮询查进度）
+    // 前端疯狂报 404 就是因为少了这块代码！
+    // ==========================================
+    @GetMapping("/task-status/{taskId}")
+    public Result<ReviewTask> getTaskStatus(@PathVariable("taskId") Long taskId) {
+        try {
+            // 拿着前端传来的取餐牌 (taskId)，去数据库 review_tasks 表里查询
+            ReviewTask task = reviewTaskRepository.findById(taskId).orElse(null);
+            
+            if (task == null) {
+                return Result.error("查无此任务，取餐牌无效！");
+            }
+            
+            // 查到了！直接把包含 status 和 content 的任务对象扔回给前端
+            return Result.success(task);
+            
+        } catch (Exception e) {
+            return Result.error("查询状态发生异常: " + e.getMessage());
+        }
+    }
+    // 🌟 新增：获取当前用户的综述历史记录
+    @GetMapping("/review-history")
+    public Result<List<ReviewTask>> getReviewHistory(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return Result.error("未登录或 Token 丢失！");
+            }
+
+            // 提取真实 ID
+            String token = authHeader.substring(7);
+            String userIdStr = token.replace("quasar-auth-token-", "");
+            Long userId = Long.parseLong(userIdStr);
+
+            // 去数据库把这个人的历史综述全查出来
+            List<ReviewTask> history = reviewTaskRepository.findByUserIdOrderByCreatedAtDesc(userId);
+            
+            return Result.success(history);
+
+        } catch (NumberFormatException e) {
+            return Result.error("Token解析异常");
+        } catch (Exception e) {
+            return Result.error("获取历史记录失败：" + e.getMessage());
+        }
+    }
 }   

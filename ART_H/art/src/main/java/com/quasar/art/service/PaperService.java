@@ -20,10 +20,11 @@ public interface PaperService {
     com.quasar.art.entity.Paper.PaperAiAnalysis getPaperAnalysis(Long paperId);
     String generateOutline(List<Long> paperIds);
     // 1. 创建异步任务
-    ReviewTask createReviewTask(List<Long> paperIds);
+    ReviewTask createReviewTask(List<Long> paperIds, Long userId);
 
 // 2. 异步执行大模型呼叫
     void startAsyncGenerate(Long taskId, List<Long> paperIds);
+    
 
 
 }

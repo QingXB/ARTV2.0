@@ -80,11 +80,30 @@
           <div v-if="activeTab === 'outline'" class="tab-content outline-view">
             
             <div class="actions" v-if="!isSelectingPapers && !generatedOutline">
-              <p>基于文献库中已解析的文献，进行多文档观点碰撞，生成结构化综述。</p>
-              <button class="btn-generate" @click="startSelection">
-                ✨ 自动生成文献综述大纲
-              </button>
-            </div>
+  <p>基于文献库中已解析的文献，进行多文档观点碰撞，生成结构化综述。</p>
+  <button class="btn-generate" @click="startSelection">
+    ✨ 自动生成新综述大纲
+  </button>
+
+  <div class="history-panel" v-if="reviewHistoryList.length > 0">
+    <h3 class="history-title">📚 我的历史综述</h3>
+    <div class="history-cards">
+      <div 
+        class="history-card" 
+        v-for="(task, index) in reviewHistoryList" 
+        :key="task.id"
+        @click="viewHistory(task)"
+      >
+        <div class="card-icon">📄</div>
+        <div class="card-info">
+          <h4>多文档智能综述 #{{ reviewHistoryList.length - index }}</h4>
+          <p>生成时间: {{ new Date(task.createdAt).toLocaleString() }}</p>
+        </div>
+        <button class="btn-view">查看</button>
+      </div>
+    </div>
+  </div>
+</div>
 
             <div class="selection-panel actions" v-if="isSelectingPapers && !generatedOutline">
   <h3>📑 请勾选需要参与综述的文献（至少2篇）</h3>
@@ -124,7 +143,7 @@
                 <button class="btn-cancel" @click="resetOutline">🔄 重新选择文献</button>
               </div>
               <pre>{{ generatedOutline }}</pre>
-              <button class="btn-export">导出为 Markdown</button>
+              <button class="btn-export" @click="exportToMarkdown">📥 导出为 Markdown</button>
             </div>
 
           </div>
@@ -140,10 +159,35 @@
   import request from '@/utils/request.js'
 
 const router = useRouter()
-
+// 存放历史记录的数组
+const reviewHistoryList = ref([]);
 // 1. 定义一个响应式变量，默认给个保底的称呼
 const currentUsername = ref('学者') 
+// 🌟 去后端拉取历史记录的方法
+const fetchReviewHistory = async () => {
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const res = await request.get('/api/papers/review-history', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    // 取出成功状态 (status === 2) 的历史记录
+    const allHistory = res.data || res;
+    reviewHistoryList.value = allHistory.filter(task => task.status === 2);
+  } catch (error) {
+    console.error("获取综述历史失败:", error);
+  }
+};
 
+// 🌟 点击历史记录，直接把内容显示到屏幕上！
+const viewHistory = (task) => {
+  generatedOutline.value = task.content;
+};
+
+// 🌟 页面加载时自动去拉一次历史记录
+onMounted(() => {
+  fetchReviewHistory();
+  // ... 你原本 onMounted 里的其他代码比如 fetchPapers() 保持不动
+});
 onMounted(() => {
   // 2. 页面一加载，就去 localStorage 里找刚才存的名字
   const savedName = localStorage.getItem('current_user')
@@ -230,9 +274,9 @@ const triggerParse = async (paper) => {
             // 2. ⚠️ 注意：如果你的右侧面板是绑定在一个类似 activePaper 或 selectedPaper 的变量上，
             // 并且当前右侧面板正在显示这篇刚解析完的文献，你需要让它也更新一下。
             // 比如 (请把 activePaper 换成你实际使用的变量名)：
-            // if (activePaper.value && activePaper.value.id === paper.id) {
-            //   activePaper.value = { ...paper };
-            // }
+            if (selectedPaper.value && selectedPaper.value.id === paper.id) {
+              selectPaper(paper); 
+            }
             // ==========================================
 
           } else if (paper.parseStatus === 3) {
@@ -429,7 +473,6 @@ const resetOutline = () => {
   isSelectingPapers.value = true
 }
 
-// 3. 核心：异步提交并轮询进度
 const doGenerateOutline = async () => {
   if (selectedPaperIds.value.length < 2) {
     alert('为了进行观点交叉对比，请至少选择 2 篇已解析的文献！')
@@ -450,8 +493,6 @@ const doGenerateOutline = async () => {
       paperIds: selectedPaperIds.value 
     }, { headers })
     
-    // 根据你的 axios 拦截器，这里拿到的是后端的 Result.success(taskId)
-    // 假设直接解构出 taskId
     const taskId = submitRes.data || submitRes
     
     if (!taskId) {
@@ -461,47 +502,57 @@ const doGenerateOutline = async () => {
     console.log(`✅ 任务提交成功！拿到取餐牌：TaskID = ${taskId}，开始轮询...`)
 
     // ==========================================
-    // 第二步：开启定时器，每 5 秒问一次后台“做好了没”
+    // 🌟🌟🌟 核心修复：把丢失的计数器变量补回来！
     // ==========================================
     let pollCount = 0
-    const maxPolls = 60 // 最多问 60 次 (5秒 * 60 = 5分钟)，防止死循环
+    const maxPolls = 60 // 最多问 60 次 (5秒 * 60 = 5分钟)
     
+    // ==========================================
+    // 第二步：开启定时器，每 5 秒查一次进度
+    // ==========================================
     const timer = setInterval(async () => {
-      pollCount++
+      pollCount++ // 每次轮询加 1
       
       try {
-        // 去问 Java 这个任务的状态
         const statusRes = await request.get(`/api/papers/task-status/${taskId}`, { headers })
-        const task = statusRes.data || statusRes // 拿到 ReviewTask 对象
         
+        // 剥离外壳，拿到真正的 ReviewTask 数据
+        const task = statusRes.code === 200 ? statusRes.data : (statusRes.data || statusRes)
+        
+        console.log(`🕵️ 第 ${pollCount} 次轮询，最新状态：`, task)
+
+        // 🟢 状态 2：生成成功！
         if (task.status === 2) { 
-          // 🟢 状态 2：生成成功！
           clearInterval(timer) // 砸掉定时器
-          generatedOutline.value = task.content // 把 Markdown 渲染到页面上
-          isGenerating.value = false
-          isSelectingPapers.value = false // 隐藏多选面板
-          console.log("🎉 轮询结束，大模型生成成功！")
           
-        } else if (task.status === 3) { 
-          // 🔴 状态 3：生成失败
+          // 渲染 3100 字的大模型结果！
+          generatedOutline.value = task.content 
+          
+          isGenerating.value = false
+          isSelectingPapers.value = false 
+          console.log("🎉 轮询结束，大模型生成成功！渲染到页面！")
+          
+        } 
+        // 🔴 状态 3：生成失败
+        else if (task.status === 3) { 
           clearInterval(timer)
           alert('AI 生成失败: ' + (task.errorMessage || '大模型开小差了'))
           isGenerating.value = false
           
-        } else if (pollCount >= maxPolls) { 
-          // 🟡 超过 5 分钟还没好，放过前端吧
+        } 
+        // 🟡 超时保底：超过 5 分钟还没好，放过前端吧
+        else if (pollCount >= maxPolls) { 
           clearInterval(timer)
           alert('AI 思考时间太长，请稍后刷新页面查看历史记录。')
           isGenerating.value = false
         }
-        // 如果 status 是 0 (等待) 或 1 (处理中)，啥也不干，让它接着转圈圈
         
       } catch (pollError) {
         console.error('轮询请求异常:', pollError)
         // 网络偶尔抖动可以不砸定时器，让它继续尝试
       }
       
-    }, 5000) // 5000 毫秒 = 5 秒去问一次
+    }, 5000) // 5000 毫秒 = 5 秒
 
   } catch (error) {
     alert('提交综述任务失败，请检查网络或后端报错！')
@@ -509,6 +560,40 @@ const doGenerateOutline = async () => {
     isGenerating.value = false
   }
 }
+// ==========================================
+// 🌟 核心功能：纯前端导出 Markdown 文件
+// ==========================================
+const exportToMarkdown = () => {
+  // 1. 防呆校验：如果没有内容，直接 return
+  if (!generatedOutline.value) {
+    alert('暂无大纲内容可导出！');
+    return;
+  }
+
+  // 2. 将大纲字符串转换为 Blob 对象，指定 MIME 类型为 markdown
+  const blob = new Blob([generatedOutline.value], { type: 'text/markdown;charset=utf-8' });
+
+  // 3. 在浏览器内存里为这个 Blob 对象生成一个临时的下载链接
+  const url = URL.createObjectURL(blob);
+
+  // 4. 动态创建一个隐藏的 <a> 标签
+  const link = document.createElement('a');
+  link.href = url;
+  
+  // 5. 生成高逼格的文件名（包含当天的日期）
+  const dateStr = new Date().toISOString().slice(0, 10); // 格式：2026-03-25
+  link.download = `智研AI_文献综述大纲_${dateStr}.md`; 
+
+  // 6. 把这个隐藏的 <a> 标签塞进页面，模拟用户点击，然后再光速销毁它
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  // 7. 释放内存，好习惯
+  URL.revokeObjectURL(url);
+  
+  console.log('🎉 导出成功！');
+};
   
   // 初始化时拉取列表
   onMounted(() => {
@@ -950,4 +1035,62 @@ const doGenerateOutline = async () => {
 
 .btn-retry { background: #fff0f2; border-color: #fda4af; color: #e11d48; font-weight: bold; }
 .btn-retry:hover { background: #ffe4e6; }
+.history-panel {
+  margin-top: 40px;
+  text-align: left;
+}
+.history-title {
+  font-size: 16px;
+  color: #334155;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+.history-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.history-card {
+  display: flex;
+  align-items: center;
+  padding: 15px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.history-card:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+.card-icon {
+  font-size: 24px;
+  margin-right: 15px;
+}
+.card-info {
+  flex: 1;
+}
+.card-info h4 {
+  margin: 0 0 5px 0;
+  color: #1e293b;
+  font-size: 15px;
+}
+.card-info p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.btn-view {
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #3b82f6;
+  font-weight: 500;
+  cursor: pointer;
+}
   </style>

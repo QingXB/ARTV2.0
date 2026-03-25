@@ -302,19 +302,19 @@ return paperRepository.save(paper);
     }
     // ================== 新增的异步任务逻辑 ==================
 
-@Override
-public ReviewTask createReviewTask(List<Long> paperIds) {
-    ReviewTask task = new ReviewTask();
-    // 假设当前用户ID是 1，如果是真实环境，请从 Token 或参数里取真实 userId
-    task.setUserId(1L); 
-    
-    // 把 List<Long> 转换成用逗号拼接的字符串，例如 "14,17"
-    String idsStr = paperIds.stream().map(String::valueOf).collect(Collectors.joining(","));
-    task.setPaperIds(idsStr);
-    
-    task.setStatus(0); // 0: 等待中
-    return reviewTaskRepository.save(task); // 先存进数据库，立刻拿到生成的 ID
-}
+    @Override
+    public ReviewTask createReviewTask(List<Long> paperIds, Long userId) { // 🌟 加上 userId 参数
+        ReviewTask task = new ReviewTask();
+        // 🌟 动态赋值真实的拥护者 ID，告别写死！
+        task.setUserId(userId); 
+        
+        // 把 List<Long> 转成逗号分隔的字符串存入数据库
+        String idsStr = paperIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        task.setPaperIds(idsStr);
+        task.setStatus(0);
+        
+        return reviewTaskRepository.save(task);
+    }
 
 
 // 🌟 绝杀：@Async 注解让这个方法去后台线程悄悄跑，绝对不阻塞前端！
