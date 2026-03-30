@@ -1,2 +1,8 @@
-.vscode/launch.json
-ART_P/.env
+﻿venv/
+.venv/
+__pycache__/
+*.pyc
+target/
+*.class
+.idea/
+.vscode/
