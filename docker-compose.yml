@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL 数据库（备用，如需使用请取消注释）
+  # ============================================
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: art-postgres
+  #   environment:
+  #     POSTGRES_DB: art
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - art-network
+
+  # ============================================
+  # ART_P - Python AI 微服务
+  # ============================================
+  art-p:
+    build:
+      context: .
+      dockerfile: ART_P/Dockerfile
+    container_name: art-p
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ART_P:/app
+      - paper_data:/app/paper
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your-api-key-here}
+    networks:
+      - art-network
+    restart: unless-stopped
+
+  # ============================================
+  # ART_H - Java Spring Boot 后端
+  # ============================================
+  art-h:
+    build:
+      context: .
+      dockerfile: ART_H/Dockerfile
+    container_name: art-h
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ART_H/art/paper:/app/paper
+    environment:
+      SPRING_DATASOURCE_URL: ${DB_URL:-jdbc:postgresql://host.docker.internal:5432/art}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
+      AI_PYTHON_API_URL: http://art-p:8000/api/ai
+    networks:
+      - art-network
+    depends_on:
+      - art-p
+    restart: unless-stopped
+
+  # ============================================
+  # ART_Q - Vue 前端（开发模式）
+  # ============================================
+  art-q:
+    build:
+      context: .
+      dockerfile: ART_Q/Dockerfile
+    container_name: art-q
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_APP_PDF_URL: http://localhost:8080/pdf/
+    networks:
+      - art-network
+    depends_on:
+      - art-h
+    restart: unless-stopped
+
+networks:
+  art-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  paper_data:
