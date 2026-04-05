@@ -385,8 +385,11 @@ public List<PaperRelationship> analyzePaperRelations(List<Long> paperIds) {
 
                 for (Map<String, Object> rel : relationsData) {
                     PaperRelationship relationship = new PaperRelationship();
-                    relationship.setSourcePaperId(((Number) rel.get("sourcePaperId")).longValue());
-                    relationship.setTargetPaperId(((Number) rel.get("targetPaperId")).longValue());
+                    // 处理字符串或数字类型的 ID
+                    Object sourceId = rel.get("sourcePaperId");
+                    Object targetId = rel.get("targetPaperId");
+                    relationship.setSourcePaperId(sourceId instanceof Number ? ((Number) sourceId).longValue() : Long.parseLong(sourceId.toString()));
+                    relationship.setTargetPaperId(targetId instanceof Number ? ((Number) targetId).longValue() : Long.parseLong(targetId.toString()));
                     relationship.setRelationType((String) rel.get("relationType"));
                     relationship.setDescription((String) rel.get("description"));
                     results.add(relationship);
@@ -413,4 +416,5 @@ public void batchDeletePapers(List<Long> paperIds) {
             System.err.println("⚠️ 删除文献 " + paperId + " 失败: " + e.getMessage());
         }
     }
+}
 }

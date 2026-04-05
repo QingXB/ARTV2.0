@@ -21,9 +21,9 @@ import httpx                                 # HTTP 客户端库
 import config                                # 配置文件，注入所有配置参数
 
 # 创建 API 路由实例
-# prefix="/api/ai" 会自动给所有路由添加前缀
+# prefix 已在 main.py 的 include_router 中统一添加
 # tags=["AI"] 在 Swagger 文档中分组显示
-router = APIRouter(prefix="/api/ai", tags=["AI"])
+router = APIRouter(tags=["AI"])
 
 # ============================================================
 # 2. 请求体模型定义
@@ -328,12 +328,17 @@ def analyze_relations(req: RelationRequest):
 请分析这些文献之间的关系，输出 JSON 数组格式：
 [
     {
-        "sourcePaperId": <源文献编号>,
-        "targetPaperId": <目标文献编号>,
+        "sourcePaperId": <源文献的数组索引，从0开始，如0表示第一篇文献>,
+        "targetPaperId": <目标文献的数组索引，从0开始>,
         "relationType": "INHERIT|CONTRADICT|SUPPORT",
         "description": "关系描述（50字以内）"
     }
 ]
+
+重要提醒：
+- sourcePaperId 和 targetPaperId 必须是数字（0, 1, 2...），表示文献在上述列表中的索引位置
+- 绝对不要返回中文如"文献1"，必须返回数字索引
+- 例如：第一篇文献是索引0，第二篇是索引1
 
 关系类型说明：
 - INHERIT: 传承关系（后续研究在前人基础上发展）
