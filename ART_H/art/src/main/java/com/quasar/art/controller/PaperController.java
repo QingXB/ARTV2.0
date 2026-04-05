@@ -200,13 +200,57 @@ public class PaperController {
 
             // 去数据库把这个人的历史综述全查出来
             List<ReviewTask> history = reviewTaskRepository.findByUserIdOrderByCreatedAtDesc(userId);
-            
+
             return Result.success(history);
 
         } catch (NumberFormatException e) {
             return Result.error("Token解析异常");
         } catch (Exception e) {
             return Result.error("获取历史记录失败：" + e.getMessage());
+        }
+    }
+
+    // 🌟 新增：分析文献关系
+    @PostMapping("/analyze-relations")
+    public Result<List<PaperRelationship>> analyzeRelations(
+            @RequestBody OutlineRequestDTO request,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return Result.error("未登录或 Token 丢失！");
+            }
+
+            if (request.getPaperIds() == null || request.getPaperIds().size() < 2) {
+                return Result.error("至少需要 2 篇文献才能分析关系！");
+            }
+
+            List<PaperRelationship> relations = paperService.analyzePaperRelations(request.getPaperIds());
+            return Result.success(relations);
+
+        } catch (Exception e) {
+            return Result.error("关系分析失败：" + e.getMessage());
+        }
+    }
+
+    // 🌟 新增：批量删除文献
+    @PostMapping("/batch-delete")
+    public Result<String> batchDeletePapers(
+            @RequestBody OutlineRequestDTO request,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return Result.error("未登录或 Token 丢失！");
+            }
+
+            if (request.getPaperIds() == null || request.getPaperIds().isEmpty()) {
+                return Result.error("请选择要删除的文献！");
+            }
+
+            paperService.batchDeletePapers(request.getPaperIds());
+            return Result.success("批量删除成功，共删除 " + request.getPaperIds().size() + " 篇文献");
+
+        } catch (Exception e) {
+            return Result.error("批量删除失败：" + e.getMessage());
         }
     }
 }   

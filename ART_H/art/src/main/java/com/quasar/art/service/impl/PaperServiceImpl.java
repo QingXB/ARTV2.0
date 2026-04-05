@@ -2,7 +2,11 @@ package com.quasar.art.service.impl;
 
 
 import com.quasar.art.entity.Paper.Paper;
+import com.quasar.art.entity.Paper.PaperAiAnalysis;
+import com.quasar.art.entity.Paper.PaperRelationship;
 import com.quasar.art.entity.Paper.ReviewTask;
+import com.quasar.art.repository.Paper.PaperAiAnalysisRepository;
+import com.quasar.art.repository.Paper.PaperRelationshipRepository;
 import com.quasar.art.repository.Paper.PaperRepository;
 import com.quasar.art.repository.Paper.ReviewTaskRepository;
 import com.quasar.art.service.PaperService;
@@ -20,7 +24,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,10 +41,13 @@ public class PaperServiceImpl implements PaperService {
 
     // 🌟 把你的 AI 解析 Repository 注入进来
     @Autowired
-    private com.quasar.art.repository.Paper.PaperAiAnalysisRepository aiAnalysisRepository;
-    
+    private PaperAiAnalysisRepository aiAnalysisRepository;
+
     @Autowired
     private ReviewTaskRepository reviewTaskRepository;
+
+    @Autowired
+    private PaperRelationshipRepository paperRelationshipRepository;
     
     @Value("${ai.python.api.url}")
     private String pythonApiUrlConfig;
@@ -334,5 +340,77 @@ public void startAsyncGenerate(Long taskId, List<Long> paperIds) {
         System.err.println("❌ [后台异步线程] 生成失败: " + e.getMessage());
     }
 }
-    
+
+@Override
+public List<PaperRelationship> analyzePaperRelations(List<Long> paperIds) {
+    try {
+        // 1. 获取文献信息
+        List<Paper> papers = paperRepository.findAllById(paperIds);
+        if (papers.size() < 2) {
+            throw new RuntimeException("至少需要2篇文献才能分析关系");
+        }
+
+        // 2. 组装文献数据调用Python服务
+        Map<String, Object> pythonRequest = new HashMap<>();
+        List<Map<String, String>> paperInfos = new ArrayList<>();
+
+        for (Paper paper : papers) {
+            PaperAiAnalysis analysis = aiAnalysisRepository.findByPaperId(paper.getId());
+            if (analysis != null) {
+                Map<String, String> info = new HashMap<>();
+                info.put("title", paper.getTitle());
+                info.put("research_question", analysis.getResearchQuestion());
+                info.put("methodology", analysis.getMethodology());
+                info.put("conclusion", analysis.getConclusion());
+                paperInfos.add(info);
+            }
+        }
+
+        if (paperInfos.size() < 2) {
+            throw new RuntimeException("有效的已解析文献不足2篇");
+        }
+
+        pythonRequest.put("papers", paperInfos);
+
+        // 3. 调用Python关系分析接口
+        String pythonUrl = pythonApiUrlConfig.replace("/parse", "/analyze-relations");
+        org.springframework.http.ResponseEntity<Map> response = restTemplate.postForEntity(
+            pythonUrl, pythonRequest, Map.class);
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            Map<String, Object> body = response.getBody();
+            if ((Integer) body.get("code") == 200) {
+                List<Map<String, Object>> relationsData = (List<Map<String, Object>>) body.get("data");
+                List<PaperRelationship> results = new ArrayList<>();
+
+                for (Map<String, Object> rel : relationsData) {
+                    PaperRelationship relationship = new PaperRelationship();
+                    relationship.setSourcePaperId(((Number) rel.get("sourcePaperId")).longValue());
+                    relationship.setTargetPaperId(((Number) rel.get("targetPaperId")).longValue());
+                    relationship.setRelationType((String) rel.get("relationType"));
+                    relationship.setDescription((String) rel.get("description"));
+                    results.add(relationship);
+                }
+
+                // 保存到数据库
+                return paperRelationshipRepository.saveAll(results);
+            }
+        }
+
+        throw new RuntimeException("关系分析服务返回异常");
+    } catch (Exception e) {
+        System.err.println("❌ 关系分析失败: " + e.getMessage());
+        throw new RuntimeException("关系分析失败: " + e.getMessage());
+    }
+}
+
+@Override
+public void batchDeletePapers(List<Long> paperIds) {
+    for (Long paperId : paperIds) {
+        try {
+            deletePaper(paperId);
+        } catch (Exception e) {
+            System.err.println("⚠️ 删除文献 " + paperId + " 失败: " + e.getMessage());
+        }
+    }
 }

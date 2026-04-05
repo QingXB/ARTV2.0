@@ -147,7 +147,41 @@
             </div>
 
           </div>
-  
+
+          <div v-if="activeTab === 'graph'" class="tab-content graph-view">
+            <div v-if="!analyzedRelations.length && !isAnalyzing">
+              <p>分析多篇文献之间的关系，识别观点传承、矛盾和支持。</p>
+              <button class="btn-generate" @click="startRelationAnalysis">
+                🔍 开始关系分析
+              </button>
+            </div>
+
+            <div v-if="isAnalyzing" class="loading-state">
+              <p>🧠 AI 正在分析文献关系，请稍候...</p>
+            </div>
+
+            <div v-if="analyzedRelations.length > 0" class="relations-result">
+              <div class="result-header">
+                <button class="btn-cancel" @click="analyzedRelations = []">🔄 重新分析</button>
+                <h3>发现 {{ analyzedRelations.length }} 对关系</h3>
+              </div>
+
+              <div class="relation-list">
+                <div v-for="(rel, index) in analyzedRelations" :key="index" class="relation-card">
+                  <div class="relation-type" :class="rel.relationType.toLowerCase()">
+                    <span v-if="rel.relationType === 'INHERIT'">📚 传承</span>
+                    <span v-if="rel.relationType === 'CONTRADICT'">⚔️ 矛盾</span>
+                    <span v-if="rel.relationType === 'SUPPORT'">🤝 支持</span>
+                  </div>
+                  <div class="relation-desc">{{ rel.description }}</div>
+                  <div class="relation-papers">
+                    文献 {{ rel.sourcePaperId }} → 文献 {{ rel.targetPaperId }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </main>
       </div>
     </div>
@@ -161,7 +195,10 @@
 const router = useRouter()
 // 存放历史记录的数组
 const reviewHistoryList = ref([]);
-// 1. 定义一个响应式变量，默认给个保底的称呼
+// 存放关系分析结果的数组
+const analyzedRelations = ref([]);
+const isAnalyzing = ref(false);
+// 1. 定义一个响应式变量，默认给个保差的称呼
 const currentUsername = ref('学者') 
 // 🌟 去后端拉取历史记录的方法
 const fetchReviewHistory = async () => {
@@ -181,6 +218,32 @@ const fetchReviewHistory = async () => {
 // 🌟 点击历史记录，直接把内容显示到屏幕上！
 const viewHistory = (task) => {
   generatedOutline.value = task.content;
+};
+
+// 🌟 开始关系分析
+const startRelationAnalysis = async () => {
+  // 获取已解析的文献
+  const parsedPapers = papers.value.filter(p => p.parseStatus === 2);
+  if (parsedPapers.length < 2) {
+    alert('至少需要2篇已解析的文献才能分析关系！');
+    return;
+  }
+
+  const paperIds = parsedPapers.map(p => p.id);
+
+  try {
+    isAnalyzing.value = true;
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const res = await request.post('/api/papers/analyze-relations', { paperIds }, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    analyzedRelations.value = res.data || [];
+  } catch (error) {
+    console.error("关系分析失败:", error);
+    alert('关系分析失败，请重试');
+  } finally {
+    isAnalyzing.value = false;
+  }
 };
 
 // 🌟 页面加载时自动去拉一次历史记录

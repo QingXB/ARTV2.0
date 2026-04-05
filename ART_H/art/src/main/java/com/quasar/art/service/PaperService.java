@@ -24,7 +24,10 @@ public interface PaperService {
 
 // 2. 异步执行大模型呼叫
     void startAsyncGenerate(Long taskId, List<Long> paperIds);
-    
 
+    // 分析文献关系
+    java.util.List<com.quasar.art.entity.Paper.PaperRelationship> analyzePaperRelations(java.util.List<Long> paperIds);
 
+    // 批量删除文献
+    void batchDeletePapers(java.util.List<Long> paperIds);
 }

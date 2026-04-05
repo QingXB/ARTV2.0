@@ -8,9 +8,15 @@ import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * @Deprecated 遗留实体
+ * 当前系统使用 ReviewTask 替代此实体存储综述任务
+ * 此实体暂未删除，待确认无数据后可安全移除
+ */
 @Data
 @Entity
 @Table(name = "literature_reviews")
+@Deprecated
 public class LiteratureReview {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
