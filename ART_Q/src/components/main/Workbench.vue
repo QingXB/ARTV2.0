@@ -186,17 +186,12 @@ const viewHistory = (task) => {
 // 🌟 页面加载时自动去拉一次历史记录
 onMounted(() => {
   fetchReviewHistory();
-  // ... 你原本 onMounted 里的其他代码比如 fetchPapers() 保持不动
-});
-onMounted(() => {
-  // 2. 页面一加载，就去 localStorage 里找刚才存的名字
+  // 页面一加载，就去 localStorage 里找刚才存的名字
   const savedName = localStorage.getItem('current_user')
-  
   if (savedName) {
-    // 如果找到了，就把 "Quasar" 赋值给页面变量，页面会瞬间自动更新！
-    currentUsername.value = savedName 
+    currentUsername.value = savedName
   }
-})
+});
 
 
 const handleLogout = () => {

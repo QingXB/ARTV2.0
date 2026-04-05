@@ -87,29 +87,8 @@ public class PaperServiceImpl implements PaperService {
             
             paper.setParseStatus(0); // 0代表未解析，等着 Python 来接手
 
-// ====== 🌟 世纪握手测试代码 开始 ======
-try {
-    // 1. 获取刚刚存好的 PDF 的绝对物理路径
-    String absolutePath = targetLocation.toAbsolutePath().toString();
-    System.out.println("准备发送给 Python 的文件路径: " + absolutePath);
-
-    // 2. 组装给 Python 的 JSON 数据：{"file_path": "C:\...\xxx.pdf"}
-    java.util.Map<String, String> requestBody = new java.util.HashMap<>();
-    requestBody.put("file_path", absolutePath);
-
-    // 3. 呼叫 Python 服务
-    Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
-    
-    // 4. 打印 Python 的回信
-    System.out.println("🎉 收到 Python 的回信: " + response);
-    
-} catch (Exception e) {
-    System.err.println("❌ 呼叫 Python 失败，看看是不是 Python 没启动？报错: " + e.getMessage());
-}
-// ====== 🌟 世纪握手测试代码 结束 ======
-
-// 保存到数据库并返回
-return paperRepository.save(paper);
+            // 保存到数据库并返回
+            return paperRepository.save(paper);
 
         } catch (IOException ex) {
             throw new RuntimeException("无法保存文件，请检查目录权限!", ex);
@@ -134,71 +113,74 @@ return paperRepository.save(paper);
         paper.setParseStatus(1);
         paperRepository.save(paper);
 
-        // 2. 开启异步线程去呼叫 Python
-        new Thread(() -> {
-            try {
-                // 拼接出文件的绝对物理路径
-                Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
-                Path targetLocation = uploadPath.resolve(paper.getFilePath());
-                String absolutePath = targetLocation.toAbsolutePath().toString();
+        // 2. 开启异步线程去呼叫 Python（使用 @Async 注解的线程池）
+        this.executeAiAnalysisAsync(paperId, paper);
+    }
 
-                System.out.println("🚀 [手动触发解析] 准备发送给 Python 的文件路径: " + absolutePath);
+    @Async("taskExecutor")
+    public void executeAiAnalysisAsync(Long paperId, Paper paper) {
+        try {
+            // 拼接出文件的绝对物理路径
+            Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Path targetLocation = uploadPath.resolve(paper.getFilePath());
+            String absolutePath = targetLocation.toAbsolutePath().toString();
 
-                // 组装数据并发送给 Python
-                Map<String, String> requestBody = new HashMap<>();
-                requestBody.put("file_path", absolutePath);
+            System.out.println("🚀 [手动触发解析] 准备发送给 Python 的文件路径: " + absolutePath);
 
-                // 发送请求
-                Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
-                System.out.println("🎉 [手动触发解析] 收到 Python 的回信: " + response);
+            // 组装数据并发送给 Python
+            Map<String, String> requestBody = new HashMap<>();
+            requestBody.put("file_path", absolutePath);
 
-                // ====== 🌟 核心绝杀：解析回信并精准落库 ======
-                if (response != null && (Integer) response.get("code") == 200) {
-                    // 1. 把 data 那一坨 Map 挖出来
-                    Map<String, String> data = (Map<String, String>) response.get("data");
+            // 发送请求
+            Map response = restTemplate.postForObject(pythonApiUrlConfig, requestBody, Map.class);
+            System.out.println("🎉 [手动触发解析] 收到 Python 的回信: " + response);
 
-                    // 2. 查出旧数据，如果没有就 new 一个新的
-                    com.quasar.art.entity.Paper.PaperAiAnalysis aiData = aiAnalysisRepository.findByPaperId(paperId);
-                    if (aiData == null) {
-                        aiData = new com.quasar.art.entity.Paper.PaperAiAnalysis();
-                        aiData.setPaperId(paperId); // 只有新纪录才需要绑定 paperId
-                    }
-                    
-                    // 塞入 AI 提取的三个核心字段
-                    aiData.setResearchQuestion(data.get("research_question"));
-                    aiData.setMethodology(data.get("methodology"));
-                    aiData.setConclusion(data.get("conclusion"));
-                    
-                    // 用 Jackson 把原始 data 转成 JSON 字符串，存入你的 jsonb 字段
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    aiData.setRawAiResponse(mapper.writeValueAsString(data));
+            // ====== 🌟 核心绝杀：解析回信并精准落库 ======
+            if (response != null && (Integer) response.get("code") == 200) {
+                // 1. 把 data 那一坨 Map 挖出来
+                Map<String, String> data = (Map<String, String>) response.get("data");
 
-                    // 保存到数据库
-                    aiAnalysisRepository.save(aiData);
-
-                    // 3. 🌟 成功！把主表 (Paper) 的状态改为 2 (已解析)
-                    paper.setParseStatus(2);
-                    paperRepository.save(paper);
-
-                    System.out.println("✅ [Java 线程] 完美入库！数据已成功落入 PostgreSQL，主表状态已更新为已解析！");
-                } else {
-                    // 🌟 核心优化 2：如果 Python 没返回 200，说明内容违规或大模型抽风
-                    // 直接主动抛出异常，让下面的 catch 块去处理失败状态！
-                    throw new RuntimeException("Python 返回异常状态码：" + response);
+                // 2. 查出旧数据，如果没有就 new 一个新的
+                com.quasar.art.entity.Paper.PaperAiAnalysis aiData = aiAnalysisRepository.findByPaperId(paperId);
+                if (aiData == null) {
+                    aiData = new com.quasar.art.entity.Paper.PaperAiAnalysis();
+                    aiData.setPaperId(paperId); // 只有新纪录才需要绑定 paperId
                 }
-                // ========================================
 
-            } catch (Exception e) {
-                System.err.println("❌ [手动触发解析] 呼叫 Python 失败或落库异常: " + e.getMessage());
-                e.printStackTrace(); 
-                
-                // 🌟 核心优化 3：终极兜底逻辑！只要出现任何报错（网络断了、大模型超时等）
-                // 立刻把主表状态改成 3 (失败)，让前端显示红色错误并允许重试！
-                paper.setParseStatus(3);
+                // 塞入 AI 提取的三个核心字段
+                aiData.setResearchQuestion(data.get("research_question"));
+                aiData.setMethodology(data.get("methodology"));
+                aiData.setConclusion(data.get("conclusion"));
+
+                // 用 Jackson 把原始 data 转成 JSON 字符串，存入你的 jsonb 字段
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                aiData.setRawAiResponse(mapper.writeValueAsString(data));
+
+                // 保存到数据库
+                aiAnalysisRepository.save(aiData);
+
+                // 3. 🌟 成功！把主表 (Paper) 的状态改为 2 (已解析)
+                paper.setParseStatus(2);
                 paperRepository.save(paper);
-                System.out.println("⚠️ [Java 线程] 已将文献状态标记为 3 (解析失败)，等待用户重试。");
+
+                System.out.println("✅ [Java 线程] 完美入库！数据已成功落入 PostgreSQL，主表状态已更新为已解析！");
+            } else {
+                // 🌟 核心优化 2：如果 Python 没返回 200，说明内容违规或大模型抽风
+                // 直接主动抛出异常，让下面的 catch 块去处理失败状态！
+                throw new RuntimeException("Python 返回异常状态码：" + response);
             }
-        }).start();
+            // ========================================
+
+        } catch (Exception e) {
+            System.err.println("❌ [手动触发解析] 呼叫 Python 失败或落库异常: " + e.getMessage());
+            e.printStackTrace();
+
+            // 🌟 核心优化 3：终极兜底逻辑！只要出现任何报错（网络断了、大模型超时等）
+            // 立刻把主表状态改成 3 (失败)，让前端显示红色错误并允许重试！
+            paper.setParseStatus(3);
+            paperRepository.save(paper);
+            System.out.println("⚠️ [Java 线程] 已将文献状态标记为 3 (解析失败)，等待用户重试。");
+        }
     }
     @Override
     public void deletePaper(Long paperId) {
@@ -273,8 +255,8 @@ return paperRepository.save(paper);
         pythonRequest.put("papers", paperInfos);
 
         // 3. 跨语言呼叫 Python 微服务的综述接口
-        // 这里我们直接写死 Python 的综述接口地址，最稳妥！
-        String pythonUrl = "http://127.0.0.1:8000/api/ai/generate-outline";
+        // 使用配置的 URL，替换末尾的 /parse 为 /generate-outline
+        String pythonUrl = pythonApiUrlConfig.replace("/parse", "/generate-outline");
         
         try {
             System.out.println("🚀 正在呼叫 Python 微服务生成综述，共组装了 " + paperInfos.size() + " 篇文献精华...");
