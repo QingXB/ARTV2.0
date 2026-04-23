@@ -12,48 +12,62 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
-
-# 默认配置
-CONFIG_FILE=".deploy.conf"
-ENABLE_HTTPS=false
-AUTO_PULL=false
-TARGET_BRANCH="main"
-CLEAN_IMAGES=false
-BACKUP_DATA=false
-SELECTED_SERVICES=("art-p" "art-h" "art-q")
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-# 加载配置文件
-load_config() {
-    if [ -f "$PROJECT_DIR/$CONFIG_FILE" ]; then
-        echo -e "${BLUE}加载配置文件: $CONFIG_FILE${NC}"
-        source "$PROJECT_DIR/$CONFIG_FILE"
-    fi
-}
+ENV_FILE="$PROJECT_DIR/.env"
+ENV_EXAMPLE="$PROJECT_DIR/.env.example"
 
-# 保存配置
-save_config() {
-    cat > "$PROJECT_DIR/$CONFIG_FILE" << EOF
-# ART 部署配置文件
-ENABLE_HTTPS=$ENABLE_HTTPS
-AUTO_PULL=$AUTO_PULL
-TARGET_BRANCH="$TARGET_BRANCH"
-CLEAN_IMAGES=$CLEAN_IMAGES
-BACKUP_DATA=$BACKUP_DATA
-EOF
-    echo -e "${GREEN}配置已保存到: $CONFIG_FILE${NC}"
-}
+# ============================================
+# 基础工具
+# ============================================
 
-# 打印标题
 print_header() {
     echo -e "${CYAN}========================================${NC}"
     echo -e "${CYAN}     ART 项目 - Docker 部署脚本${NC}"
     echo -e "${CYAN}========================================${NC}"
+}
+
+# 确保 .env 存在
+ensure_env_file() {
+    if [ ! -f "$ENV_FILE" ]; then
+        if [ -f "$ENV_EXAMPLE" ]; then
+            echo -e "${YELLOW}首次运行：从 .env.example 创建 .env${NC}"
+            cp "$ENV_EXAMPLE" "$ENV_FILE"
+            echo -e "${GREEN}✓${NC} 已创建 $ENV_FILE"
+            echo -e "${YELLOW}请通过菜单 [配置] 修改数据库、API 密钥等实际值${NC}"
+            echo ""
+        else
+            echo -e "${RED}错误: .env 和 .env.example 都不存在${NC}"
+            exit 1
+        fi
+    fi
+}
+
+# 加载 .env 到当前 shell
+load_env() {
+    ensure_env_file
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+    # 把 SELECTED_SERVICES 字符串转成数组
+    read -ra SELECTED_SERVICES_ARR <<< "${SELECTED_SERVICES:-art-p art-h art-q}"
+}
+
+# 原地修改 .env 中某一行（没有则追加）
+save_env_var() {
+    local key=$1 value=$2
+    if grep -qE "^${key}=" "$ENV_FILE"; then
+        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
+    else
+        echo "${key}=${value}" >> "$ENV_FILE"
+    fi
 }
 
 # 检查依赖
@@ -70,248 +84,531 @@ check_dependencies() {
         echo -e "${RED}错误: Docker Compose 未安装${NC}"
         exit 1
     fi
-    echo -e "  ${GREEN}✓${NC} Docker Compose"
 
-    # Docker Compose 命令（兼容新旧版本）
     DOCKER_COMPOSE="docker compose"
     if ! docker compose version &> /dev/null; then
         DOCKER_COMPOSE="docker-compose"
     fi
-    echo -e "  ${GREEN}✓${NC} 使用命令: $DOCKER_COMPOSE"
+    echo -e "  ${GREEN}✓${NC} $DOCKER_COMPOSE"
 }
 
-# Git 操作
+# ============================================
+# Git / 数据备份 / 镜像清理
+# ============================================
+
 git_pull() {
-    if [ "$AUTO_PULL" = true ]; then
-        echo -e "${YELLOW}[Git 操作]${NC}"
-        if [ -d ".git" ]; then
-            echo -e "  当前分支: ${BLUE}$(git branch --show-current)${NC}"
-            if [ "$TARGET_BRANCH" != "$(git branch --show-current)" ]; then
-                echo -e "  切换到分支: ${BLUE}$TARGET_BRANCH${NC}"
-                git checkout "$TARGET_BRANCH"
-            fi
-            echo -e "  拉取最新代码..."
-            git pull origin "$TARGET_BRANCH"
-            echo -e "  ${GREEN}✓${NC} 代码已更新"
-        else
-            echo -e "  ${YELLOW}⚠${NC} 非 Git 仓库，跳过拉取"
-        fi
+    if [ ! -d ".git" ]; then
+        echo -e "  ${YELLOW}⚠${NC} 非 Git 仓库，跳过"
+        return
     fi
+    local current_branch
+    current_branch=$(git branch --show-current)
+    echo -e "  当前分支: ${BLUE}${current_branch}${NC}"
+    if [ -n "$TARGET_BRANCH" ] && [ "$TARGET_BRANCH" != "$current_branch" ]; then
+        echo -e "  切换到分支: ${BLUE}${TARGET_BRANCH}${NC}"
+        git checkout "$TARGET_BRANCH"
+    fi
+    echo -e "  拉取最新代码..."
+    git pull origin "${TARGET_BRANCH:-$current_branch}"
+    echo -e "  ${GREEN}✓${NC} 代码已更新"
 }
 
-# 备份数据
 backup_data() {
-    if [ "$BACKUP_DATA" = true ]; then
+    if [ "$BACKUP_DATA" = "true" ]; then
         echo -e "${YELLOW}[数据备份]${NC}"
-        BACKUP_DIR="$PROJECT_DIR/backups/$(date +%Y%m%d_%H%M%S)"
-        mkdir -p "$BACKUP_DIR"
-
-        # 备份 paper 目录
+        local backup_dir="$PROJECT_DIR/backups/$(date +%Y%m%d_%H%M%S)"
+        mkdir -p "$backup_dir"
         if [ -d "ART_H/art/paper" ]; then
-            cp -r "ART_H/art/paper" "$BACKUP_DIR/"
+            cp -r "ART_H/art/paper" "$backup_dir/"
             echo -e "  ${GREEN}✓${NC} 备份 paper 目录"
         fi
-
-        echo -e "  备份位置: ${BLUE}$BACKUP_DIR${NC}"
+        echo -e "  位置: ${BLUE}${backup_dir}${NC}"
     fi
 }
 
-# 清理旧镜像
 clean_images() {
-    if [ "$CLEAN_IMAGES" = true ]; then
+    if [ "$CLEAN_IMAGES" = "true" ]; then
         echo -e "${YELLOW}[清理旧镜像]${NC}"
-        read -p "  确认清理未使用的镜像? (y/N): " confirm
-        if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-            docker image prune -f
-            echo -e "  ${GREEN}✓${NC} 镜像已清理"
-        fi
+        docker image prune -f
+        echo -e "  ${GREEN}✓${NC} 镜像已清理"
     fi
 }
 
-# 构建服务
-build_services() {
-    echo -e "${YELLOW}[构建镜像]${NC}"
-    for service in "${SELECTED_SERVICES[@]}"; do
-        echo -e "  构建 ${BLUE}$service${NC}..."
-        $DOCKER_COMPOSE build "$service"
+# ============================================
+# 部署模式
+# ============================================
+
+pre_deploy_hooks() {
+    if [ "$AUTO_PULL" = "true" ]; then
+        echo -e "${YELLOW}[Git 操作]${NC}"
+        git_pull
+    fi
+    backup_data
+    clean_images
+}
+
+# ============================================
+# 向导步骤（用于 2/3 增量/全量部署）
+# ============================================
+
+wizard_step() {
+    local step=$1 total=$2 title=$3
+    echo ""
+    echo -e "${MAGENTA}━━━ 步骤 ${step}/${total}: ${title} ━━━${NC}"
+}
+
+# 步骤：分支
+wizard_branch() {
+    local current
+    current=$(git branch --show-current 2>/dev/null || echo "N/A")
+    echo -e "  本地当前分支: ${BLUE}${current}${NC}"
+    echo -e "  目标分支 (.env): ${BLUE}${TARGET_BRANCH}${NC}"
+    read -p "切换/修改分支? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        configure_branch
+    else
+        echo -e "  ${GREEN}✓${NC} 保持当前"
+    fi
+}
+
+# 步骤：配置确认
+wizard_config() {
+    echo -e "  端口:     前端=${ART_Q_PORT}  后端=${ART_H_PORT}  AI=${ART_P_PORT}"
+    echo -e "  数据库:   ${DB_URL}"
+    echo -e "  API密钥:  ${DEEPSEEK_API_KEY:0:10}***"
+    echo -e "  开关:     auto_pull=${AUTO_PULL}  clean=${CLEAN_IMAGES}  backup=${BACKUP_DATA}"
+    read -p "需要修改配置? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo -e "  ${GREEN}✓${NC} 使用现有配置"
+        return 0
+    fi
+    while true; do
+        echo ""
+        echo -e "  ${GREEN}1${NC}) 端口"
+        echo -e "  ${GREEN}2${NC}) 数据库"
+        echo -e "  ${GREEN}3${NC}) API 密钥"
+        echo -e "  ${GREEN}4${NC}) 部署行为开关"
+        echo -e "  ${GREEN}0${NC}) 完成，继续向导"
+        read -p "修改哪项: " c
+        case $c in
+            1) configure_ports ;;
+            2) configure_database ;;
+            3) configure_api_keys ;;
+            4) configure_flags ;;
+            0|"") break ;;
+            *) echo -e "${RED}无效${NC}" ;;
+        esac
     done
+    # 重新加载
+    load_env
 }
 
-# 启动服务
-start_services() {
-    echo -e "${YELLOW}[启动服务]${NC}"
-    $DOCKER_COMPOSE up -d "${SELECTED_SERVICES[@]}"
+# 步骤：选择服务（复用已有 pick_services_interactive）
+wizard_services() {
+    pick_services_interactive
 }
 
-# 显示服务状态
+# 单个服务的 y/N 询问，追加到 _SVC_ARR
+ask_service() {
+    local svc=$1 label=$2
+    local default_yes=false
+    [[ " ${SELECTED_SERVICES_ARR[*]} " == *" ${svc} "* ]] && default_yes=true
+    local hint
+    if [ "$default_yes" = "true" ]; then
+        hint="[Y/n]"
+    else
+        hint="[y/N]"
+    fi
+    local input
+    read -p "  ${svc} (${label})   ${hint}: " input
+    if [ "$default_yes" = "true" ]; then
+        [[ ! "$input" =~ ^[Nn]$ ]] && _SVC_ARR+=("$svc")
+    else
+        [[ "$input" =~ ^[Yy]$ ]] && _SVC_ARR+=("$svc")
+    fi
+}
+
+# 逐个询问服务，最后汇总确认
+pick_services_interactive() {
+    if [ "$CLI_MODE" = "true" ]; then
+        return 0
+    fi
+    echo -e "  (回车=使用默认, y=选中, n=跳过)"
+    _SVC_ARR=()
+    ask_service "art-p" "Python AI"
+    ask_service "art-h" "Java 后端"
+    ask_service "art-q" "Vue 前端"
+
+    if [ ${#_SVC_ARR[@]} -eq 0 ]; then
+        echo -e "${RED}未选择任何服务，已取消${NC}"
+        return 1
+    fi
+    SELECTED_SERVICES_ARR=("${_SVC_ARR[@]}")
+    echo -e "  ${GREEN}✓${NC} 选中: ${SELECTED_SERVICES_ARR[*]}"
+    return 0
+}
+
+# 通用部署向导：分支 → 配置 → 服务 → 汇总确认
+# 参数: $1=部署模式名（显示用）
+run_deploy_wizard() {
+    local mode_name=$1
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║    ${mode_name} 向导 (共 4 步)${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
+
+    wizard_step 1 4 "分支确认"
+    wizard_branch
+
+    wizard_step 2 4 "配置确认"
+    wizard_config
+
+    wizard_step 3 4 "服务选择"
+    wizard_services || return 1
+
+    wizard_step 4 4 "最终确认"
+    echo -e "  模式:     ${mode_name}"
+    echo -e "  分支:     ${TARGET_BRANCH} (本地 $(git branch --show-current 2>/dev/null))"
+    echo -e "  服务:     ${SELECTED_SERVICES_ARR[*]}"
+    read -p "开始执行? (Y/n): " confirm
+    if [[ "$confirm" =~ ^[Nn]$ ]]; then
+        echo -e "${YELLOW}已取消${NC}"
+        return 1
+    fi
+    return 0
+}
+
+# ============================================
+# 部署模式
+# ============================================
+
+deploy_quick_restart() {
+    echo ""
+    echo -e "${YELLOW}[快速重启] ${SELECTED_SERVICES_ARR[*]}${NC}"
+    $DOCKER_COMPOSE restart "${SELECTED_SERVICES_ARR[@]}"
+    show_status
+}
+
+deploy_incremental() {
+    if [ "$CLI_MODE" != "true" ]; then
+        run_deploy_wizard "增量部署" || return 0
+    fi
+    echo ""
+    echo -e "${YELLOW}[增量部署] ${SELECTED_SERVICES_ARR[*]}${NC}"
+    pre_deploy_hooks
+    for svc in "${SELECTED_SERVICES_ARR[@]}"; do
+        echo -e "  构建 ${BLUE}${svc}${NC}..."
+        $DOCKER_COMPOSE build "$svc"
+    done
+    $DOCKER_COMPOSE up -d "${SELECTED_SERVICES_ARR[@]}"
+    show_status
+}
+
+deploy_full_rebuild() {
+    if [ "$CLI_MODE" != "true" ]; then
+        run_deploy_wizard "全量重建" || return 0
+    fi
+    echo ""
+    echo -e "${YELLOW}[全量重建] ${SELECTED_SERVICES_ARR[*]}${NC}"
+    pre_deploy_hooks
+    for svc in "${SELECTED_SERVICES_ARR[@]}"; do
+        echo -e "  无缓存构建 ${BLUE}${svc}${NC}..."
+        $DOCKER_COMPOSE build --no-cache "$svc"
+    done
+    $DOCKER_COMPOSE up -d --force-recreate "${SELECTED_SERVICES_ARR[@]}"
+    show_status
+}
+
+deploy_pull_only() {
+    echo ""
+    echo -e "${CYAN}--- 仅拉代码 ---${NC}"
+    wizard_branch
+    echo ""
+    git_pull
+    echo -e "${GREEN}✓${NC} 代码已同步，未触发部署"
+    echo -e "  提示: 使用菜单 2/3 进行增量或全量部署"
+}
+
+# ============================================
+# 状态 / 日志 / 停止 / 清理
+# ============================================
+
 show_status() {
     echo ""
-    print_header
-    echo ""
-    echo -e "${GREEN}部署完成！${NC}"
-    echo ""
+    echo -e "${GREEN}==== 当前服务状态 ====${NC}"
     $DOCKER_COMPOSE ps
     echo ""
     echo -e "${YELLOW}访问地址:${NC}"
-
-    if [ "$ENABLE_HTTPS" = true ]; then
-        echo -e "  - 前端(HTTPS): https://localhost"
-        echo -e "  - 后端(HTTPS):  https://localhost/api"
+    if [ "$ENABLE_HTTPS" = "true" ]; then
+        echo -e "  前端(HTTPS): https://localhost"
+        echo -e "  后端(HTTPS): https://localhost/api"
     else
-        echo -e "  - 前端: http://localhost:5173"
-        echo -e "  - 后端: http://localhost:8080"
-        echo -e "  - AI服务: http://localhost:8000/docs"
+        echo -e "  前端:    http://localhost:${ART_Q_PORT:-5173}"
+        echo -e "  后端:    http://localhost:${ART_H_PORT:-8080}"
+        echo -e "  AI服务:  http://localhost:${ART_P_PORT:-8000}/docs"
     fi
-    echo ""
-    echo -e "${YELLOW}常用命令:${NC}"
-    echo "  - 查看日志: $DOCKER_COMPOSE logs -f"
-    echo "  - 停止服务: $DOCKER_COMPOSE down"
-    echo "  - 重启服务: $DOCKER_COMPOSE restart"
     echo ""
 }
 
-# 显示菜单
-show_menu() {
-    echo ""
-    echo -e "${CYAN}请选择操作:${NC}"
-    echo "  ${GREEN}1${NC}) 开始部署"
-    echo "  ${GREEN}2${NC}) 配置参数"
-    echo "  ${GREEN}3${NC}) 查看状态"
-    echo "  ${GREEN}4${NC}) 查看日志"
-    echo "  ${GREEN}5${NC}) 停止服务"
-    echo "  ${GREEN}6${NC}) 清理环境"
-    echo "  ${GREEN}0${NC}) 退出"
-    echo ""
-}
-
-# 配置参数
-configure() {
-    echo ""
-    echo -e "${CYAN}========== 配置参数 ==========${NC}"
-    echo ""
-
-    # HTTPS
-    read -p "启用 HTTPS (Nginx反向代理)? (y/N): " input
-    ENABLE_HTTPS=$([[ "$input" =~ ^[Yy]$ ]] && echo "true" || echo "false")
-
-    # 自动拉取
-    read -p "自动拉取 Git 最新代码? (y/N): " input
-    AUTO_PULL=$([[ "$input" =~ ^[Yy]$ ]] && echo "true" || echo "false")
-
-    if [ "$AUTO_PULL" = true ]; then
-        read -p "  输入分支名 (默认: main): " input
-        TARGET_BRANCH=${input:-main}
-    fi
-
-    # 清理镜像
-    read -p "部署前清理旧镜像? (y/N): " input
-    CLEAN_IMAGES=$([[ "$input" =~ ^[Yy]$ ]] && echo "true" || echo "false")
-
-    # 备份数据
-    read -p "部署前备份数据? (y/N): " input
-    BACKUP_DATA=$([[ "$input" =~ ^[Yy]$ ]] && echo "true" || echo "false")
-
-    # 选择服务
-    echo ""
-    echo -e "${CYAN}选择要启动的服务 (用空格分隔, 默认全部):${NC}"
-    echo "  ${GREEN}p${NC}) ART_P (Python AI)"
-    echo "  ${GREEN}h${NC}) ART_H (Java 后端)"
-    echo "  ${GREEN}q${NC}) ART_Q (Vue 前端)"
-    read -p "  输入选择 (如: p h q): " input
-
-    SELECTED_SERVICES=()
-    if [[ "$input" =~ "p" ]]; then SELECTED_SERVICES+=("art-p"); fi
-    if [[ "$input" =~ "h" ]]; then SELECTED_SERVICES+=("art-h"); fi
-    if [[ "$input" =~ "q" ]]; then SELECTED_SERVICES+=("art-q"); fi
-    if [ ${#SELECTED_SERVICES[@]} -eq 0 ]; then
-        SELECTED_SERVICES=("art-p" "art-h" "art-q")
-    fi
-
-    # 保存配置
-    save_config
-
-    echo ""
-    echo -e "${CYAN}========== 当前配置 ==========${NC}"
-    show_config
-}
-
-# 显示当前配置
-show_config() {
-    echo "  HTTPS 启用: $ENABLE_HTTPS"
-    echo "  自动拉取: $AUTO_PULL"
-    echo "  目标分支: $TARGET_BRANCH"
-    echo "  清理镜像: $CLEAN_IMAGES"
-    echo "  备份数据: $BACKUP_DATA"
-    echo "  启动服务: ${SELECTED_SERVICES[*]}"
-}
-
-# 主流程
-main() {
-    print_header
-    load_config
-    check_dependencies
-
-    # 无参数时显示菜单
-    if [ $# -eq 0 ]; then
-        show_config
-        show_menu
-        read -p "请输入选项: " choice
-    else
-        choice=$1
-    fi
-
+show_logs() {
+    echo -e "${CYAN}选择要查看日志的服务:${NC}"
+    echo -e "  ${GREEN}1${NC}) 全部"
+    echo -e "  ${GREEN}2${NC}) art-p (Python AI)"
+    echo -e "  ${GREEN}3${NC}) art-h (Java 后端)"
+    echo -e "  ${GREEN}4${NC}) art-q (Vue 前端)"
+    read -p "选择 [1]: " choice
+    choice=${choice:-1}
+    echo -e "${YELLOW}Ctrl+C 退出${NC}"
     case $choice in
-        1|"")
-            git_pull
-            backup_data
-            clean_images
-            build_services
-            start_services
-            show_status
-            ;;
-        2)
-            configure
-            ;;
-        3)
-            echo -e "${YELLOW}[服务状态]${NC}"
-            $DOCKER_COMPOSE ps
-            ;;
-        4)
-            echo -e "${YELLOW}[查看日志 (Ctrl+C 退出)]${NC}"
-            $DOCKER_COMPOSE logs -f
-            ;;
-        5)
-            echo -e "${YELLOW}[停止服务]${NC}"
-            $DOCKER_COMPOSE down
-            echo -e "${GREEN}✓${NC} 服务已停止"
-            ;;
-        6)
-            echo -e "${YELLOW}[清理环境]${NC}"
-            read -p "  删除所有容器? (y/N): " confirm
-            if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                $DOCKER_COMPOSE down -v
-                echo -e "${GREEN}✓${NC} 容器已删除"
-            fi
-            read -p "  删除所有镜像? (y/N): " confirm
-            if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                docker image prune -a -f
-                echo -e "${GREEN}✓${NC} 镜像已删除"
-            fi
-            ;;
-        0)
-            echo -e "${GREEN}再见!${NC}"
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}无效选项${NC}"
-            exit 1
-            ;;
+        1) $DOCKER_COMPOSE logs -f ;;
+        2) $DOCKER_COMPOSE logs -f art-p ;;
+        3) $DOCKER_COMPOSE logs -f art-h ;;
+        4) $DOCKER_COMPOSE logs -f art-q ;;
+        *) echo -e "${RED}无效${NC}" ;;
     esac
 }
 
-# 命令行参数支持
-case "${BASH_SOURCE[0]}" in
-    deploy.sh)
-        main "$@"
-        ;;
-esac
+stop_services() {
+    pick_services_interactive || return 0
+    echo -e "${YELLOW}[停止服务] ${SELECTED_SERVICES_ARR[*]}${NC}"
+    if [ "${#SELECTED_SERVICES_ARR[@]}" -eq 3 ]; then
+        $DOCKER_COMPOSE down
+    else
+        $DOCKER_COMPOSE stop "${SELECTED_SERVICES_ARR[@]}"
+    fi
+    echo -e "${GREEN}✓${NC} 完成"
+}
+
+clean_all() {
+    echo -e "${YELLOW}[清理环境]${NC}"
+    read -p "删除所有容器及卷? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        $DOCKER_COMPOSE down -v
+        echo -e "${GREEN}✓${NC} 容器已删除"
+    fi
+    read -p "删除所有未使用镜像? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        docker image prune -a -f
+        echo -e "${GREEN}✓${NC} 镜像已清理"
+    fi
+}
+
+# ============================================
+# 配置子菜单
+# ============================================
+
+show_config() {
+    echo -e "${CYAN}---------- 当前配置 ----------${NC}"
+    echo -e "  ${MAGENTA}分支${NC}:        ${TARGET_BRANCH}  (本地: $(git branch --show-current 2>/dev/null || echo 'N/A'))"
+    echo -e "  ${MAGENTA}端口${NC}:        前端=${ART_Q_PORT}  后端=${ART_H_PORT}  AI=${ART_P_PORT}"
+    echo -e "  ${MAGENTA}数据库${NC}:      ${DB_URL}"
+    echo -e "  ${MAGENTA}API 密钥${NC}:    ${DEEPSEEK_API_KEY:0:10}***"
+    echo -e "  ${MAGENTA}选中服务${NC}:    ${SELECTED_SERVICES}  ${YELLOW}(部署时仍可临时选择)${NC}"
+    echo -e "  ${MAGENTA}行为开关${NC}:    auto_pull=${AUTO_PULL}  clean=${CLEAN_IMAGES}  backup=${BACKUP_DATA}  https=${ENABLE_HTTPS}"
+    echo ""
+}
+
+configure_branch() {
+    if [ ! -d ".git" ]; then
+        echo -e "${RED}非 Git 仓库${NC}"
+        return
+    fi
+    echo -e "${CYAN}---------- 分支选择 ----------${NC}"
+    echo -e "当前: ${BLUE}$(git branch --show-current)${NC}"
+    echo ""
+    # 收集分支（去掉 HEAD 指针行、远程重复）
+    local branches=()
+    while IFS= read -r line; do
+        line=$(echo "$line" | sed 's/^[* ]*//;s|^remotes/origin/||' | awk '{print $1}')
+        [ -z "$line" ] && continue
+        [[ "$line" == "HEAD" ]] && continue
+        branches+=("$line")
+    done < <(git branch -a | grep -v 'HEAD ->' | awk '{print $NF}' | sort -u)
+
+    local i=1
+    for b in "${branches[@]}"; do
+        echo -e "  ${GREEN}${i}${NC}) ${b}"
+        ((i++))
+    done
+    echo -e "  ${GREEN}m${NC}) 手动输入"
+    echo ""
+    read -p "选择 [回车=取消]: " choice
+    [ -z "$choice" ] && return
+
+    local target=""
+    if [ "$choice" = "m" ]; then
+        read -p "分支名: " target
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branches[@]}" ]; then
+        target="${branches[$((choice-1))]}"
+    else
+        echo -e "${RED}无效选项${NC}"
+        return
+    fi
+
+    [ -z "$target" ] && return
+    save_env_var "TARGET_BRANCH" "$target"
+    TARGET_BRANCH="$target"
+    echo -e "${GREEN}✓${NC} 目标分支设为: ${BLUE}${target}${NC}"
+
+    read -p "立即切换到该分支? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        git checkout "$target" 2>/dev/null || git checkout -b "$target" "origin/$target"
+        echo -e "${GREEN}✓${NC} 已切换"
+    fi
+}
+
+configure_ports() {
+    echo -e "${CYAN}---------- 端口配置 ----------${NC}"
+    read -p "ART_Q 前端端口 [${ART_Q_PORT}]: " v
+    [ -n "$v" ] && save_env_var "ART_Q_PORT" "$v" && ART_Q_PORT="$v"
+    read -p "ART_H 后端端口 [${ART_H_PORT}]: " v
+    [ -n "$v" ] && save_env_var "ART_H_PORT" "$v" && ART_H_PORT="$v"
+    read -p "ART_P AI 端口 [${ART_P_PORT}]: " v
+    [ -n "$v" ] && save_env_var "ART_P_PORT" "$v" && ART_P_PORT="$v"
+    echo -e "${GREEN}✓${NC} 端口已保存"
+}
+
+configure_database() {
+    echo -e "${CYAN}---------- 数据库配置（云端）----------${NC}"
+    echo -e "${YELLOW}提示: 直接回车保留当前值${NC}"
+    read -p "JDBC URL [${DB_URL}]: " v
+    [ -n "$v" ] && save_env_var "DB_URL" "$v" && DB_URL="$v"
+    read -p "用户名 [${DB_USERNAME}]: " v
+    [ -n "$v" ] && save_env_var "DB_USERNAME" "$v" && DB_USERNAME="$v"
+    read -s -p "密码 (当前: ${DB_PASSWORD:0:3}***): " v
+    echo ""
+    [ -n "$v" ] && save_env_var "DB_PASSWORD" "$v" && DB_PASSWORD="$v"
+    echo -e "${GREEN}✓${NC} 数据库配置已保存"
+}
+
+configure_api_keys() {
+    echo -e "${CYAN}---------- API 密钥 ----------${NC}"
+    read -p "DEEPSEEK_API_KEY [${DEEPSEEK_API_KEY:0:10}***]: " v
+    [ -n "$v" ] && save_env_var "DEEPSEEK_API_KEY" "$v" && DEEPSEEK_API_KEY="$v"
+    echo -e "${GREEN}✓${NC} API 密钥已保存"
+}
+
+configure_services() {
+    echo -e "${CYAN}---------- 参与部署的服务 ----------${NC}"
+    echo -e "  ${GREEN}p${NC}) ART_P (Python AI)"
+    echo -e "  ${GREEN}h${NC}) ART_H (Java 后端)"
+    echo -e "  ${GREEN}q${NC}) ART_Q (Vue 前端)"
+    echo -e "当前: ${SELECTED_SERVICES_ARR[*]}"
+    read -p "输入(如: p h q, 默认全部): " input
+    local arr=()
+    if [ -z "$input" ]; then
+        arr=("art-p" "art-h" "art-q")
+    else
+        [[ "$input" =~ p ]] && arr+=("art-p")
+        [[ "$input" =~ h ]] && arr+=("art-h")
+        [[ "$input" =~ q ]] && arr+=("art-q")
+    fi
+    [ ${#arr[@]} -eq 0 ] && arr=("art-p" "art-h" "art-q")
+    SELECTED_SERVICES="${arr[*]}"
+    SELECTED_SERVICES_ARR=("${arr[@]}")
+    save_env_var "SELECTED_SERVICES" "\"${SELECTED_SERVICES}\""
+    echo -e "${GREEN}✓${NC} 已保存: ${SELECTED_SERVICES_ARR[*]}"
+}
+
+toggle_flag() {
+    local key=$1
+    local current=${!key}
+    local new="true"
+    [ "$current" = "true" ] && new="false"
+    save_env_var "$key" "$new"
+    eval "$key=\"$new\""
+    echo -e "  ${key} = ${GREEN}${new}${NC}"
+}
+
+configure_flags() {
+    while true; do
+        echo ""
+        echo -e "${CYAN}---------- 部署行为开关 ----------${NC}"
+        echo -e "  ${GREEN}1${NC}) AUTO_PULL     = ${AUTO_PULL}     (部署前自动拉代码)"
+        echo -e "  ${GREEN}2${NC}) CLEAN_IMAGES  = ${CLEAN_IMAGES}  (部署前清理悬空镜像)"
+        echo -e "  ${GREEN}3${NC}) BACKUP_DATA   = ${BACKUP_DATA}   (部署前备份 paper/)"
+        echo -e "  ${GREEN}4${NC}) ENABLE_HTTPS  = ${ENABLE_HTTPS}  (显示用，暂不实际启用)"
+        echo -e "  ${GREEN}0${NC}) 返回"
+        read -p "切换哪一项: " c
+        case $c in
+            1) toggle_flag "AUTO_PULL" ;;
+            2) toggle_flag "CLEAN_IMAGES" ;;
+            3) toggle_flag "BACKUP_DATA" ;;
+            4) toggle_flag "ENABLE_HTTPS" ;;
+            0|"") return ;;
+            *) echo -e "${RED}无效${NC}" ;;
+        esac
+    done
+}
+
+# ============================================
+# 主菜单
+# ============================================
+
+show_menu() {
+    echo ""
+    echo -e "${CYAN}========== 主菜单 ==========${NC}"
+    echo -e "${MAGENTA}[部署]${NC}"
+    echo -e "  ${GREEN}1${NC}) 快速重启（不重建，最快）"
+    echo -e "  ${GREEN}2${NC}) 增量部署（build + up）"
+    echo -e "  ${GREEN}3${NC}) 全量重建（--no-cache）"
+    echo -e "  ${GREEN}4${NC}) 仅拉代码（不触发部署）"
+    echo -e "${MAGENTA}[配置]${NC}"
+    echo -e "  ${GREEN}5${NC}) 分支"
+    echo -e "  ${GREEN}6${NC}) 端口"
+    echo -e "  ${GREEN}7${NC}) 数据库"
+    echo -e "  ${GREEN}8${NC}) API 密钥"
+    echo -e "  ${GREEN}9${NC}) 参与部署的服务"
+    echo -e "  ${GREEN}a${NC}) 部署行为开关"
+    echo -e "${MAGENTA}[管理]${NC}"
+    echo -e "  ${GREEN}s${NC}) 查看状态"
+    echo -e "  ${GREEN}l${NC}) 查看日志"
+    echo -e "  ${GREEN}x${NC}) 停止服务"
+    echo -e "  ${GREEN}c${NC}) 清理环境"
+    echo -e "  ${GREEN}0${NC}) 退出"
+    echo ""
+}
+
+dispatch() {
+    case "$1" in
+        1|--quick)   deploy_quick_restart ;;
+        2|--incr)    deploy_incremental ;;
+        3|--full)    deploy_full_rebuild ;;
+        4|--pull)    deploy_pull_only ;;
+        5)           configure_branch ;;
+        6)           configure_ports ;;
+        7)           configure_database ;;
+        8)           configure_api_keys ;;
+        9)           configure_services ;;
+        a|A)         configure_flags ;;
+        s|S)         show_status ;;
+        l|L)         show_logs ;;
+        x|X)         stop_services ;;
+        c|C)         clean_all ;;
+        0|q|Q)       echo -e "${GREEN}再见!${NC}"; exit 0 ;;
+        "")          ;;
+        *)           echo -e "${RED}无效选项: $1${NC}"; return 1 ;;
+    esac
+}
+
+main() {
+    print_header
+    load_env
+    check_dependencies
+
+    if [ $# -gt 0 ]; then
+        CLI_MODE=true
+        dispatch "$1"
+        exit $?
+    fi
+
+    CLI_MODE=false
+    while true; do
+        show_config
+        show_menu
+        read -p "请输入选项: " choice
+        dispatch "$choice" || true
+    done
+}
+
+main "$@"

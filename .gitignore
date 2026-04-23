@@ -1,2 +1,5 @@
 .vscode/launch.json
 ART_P/.env
+.env
+.deploy.conf
+backups/

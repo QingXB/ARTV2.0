@@ -4,8 +4,8 @@ FROM eclipse-temurin:21-jdk-alpine AS builder
 WORKDIR /app
 
 # 复制 Maven 相关文件
-COPY art/pom.xml .
-COPY art .
+COPY ART_H/art/pom.xml .
+COPY ART_H/art .
 
 # 使用 Maven 构建
 RUN apk add --no-cache maven && \
