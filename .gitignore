@@ -3,3 +3,4 @@ ART_P/.env
 .env
 .deploy.conf
 backups/
+ART_P/venv/
