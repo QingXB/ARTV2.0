@@ -4,3 +4,5 @@ ART_P/.env
 .deploy.conf
 backups/
 ART_P/venv/
+.idea/
+ART_P/__pycache__/
