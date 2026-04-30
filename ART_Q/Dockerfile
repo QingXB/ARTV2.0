@@ -6,7 +6,7 @@ WORKDIR /app
 
 # 复制 package.json 先安装依赖（利用 Docker 缓存层）
 COPY ART_Q/package*.json ./
-RUN npm install
+RUN npm config set registry https://registry.npmmirror.com && npm install
 
 # 复制源代码
 COPY ART_Q/ .

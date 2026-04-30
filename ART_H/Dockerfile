@@ -6,8 +6,9 @@ WORKDIR /app
 # 复制 Maven 相关文件
 COPY ART_H/art/pom.xml .
 COPY ART_H/art .
+COPY ART_H/settings.xml /root/.m2/settings.xml
 
-# 使用 Maven 构建
+# 使用 Maven 构建（settings.xml 配置了阿里云镜像加速依赖下载）
 RUN apk add --no-cache maven && \
     mvn clean package -DskipTests
 
