@@ -47,6 +47,8 @@ services:
       - "${ART_H_PORT:-8080}:8080"
     volumes:
       - ./ART_H/art/paper:/app/paper
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       SPRING_DATASOURCE_URL: ${DB_URL:?请在 .env 中配置 DB_URL}
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:?请在 .env 中配置 DB_USERNAME}
@@ -59,7 +61,7 @@ services:
     restart: unless-stopped
 
   # ============================================
-  # ART_Q - Vue 前端（开发模式）
+  # ART_Q - Vue 前端（Nginx 生产模式）
   # ============================================
   art-q:
     build:
@@ -67,9 +69,11 @@ services:
       dockerfile: ART_Q/Dockerfile
     container_name: art-q
     ports:
-      - "${ART_Q_PORT:-5173}:5173"
+      - "${ART_Q_PORT:-5173}:80"
     environment:
-      VITE_APP_PDF_URL: http://localhost:${ART_H_PORT:-8080}/pdf/
+      # nginx 代理 API 请求，前端不需要写死服务器地址
+      VITE_APP_API_URL: ""
+      VITE_APP_PDF_URL: ""
     networks:
       - art-network
     depends_on:
