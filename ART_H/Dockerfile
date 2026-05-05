@@ -30,7 +30,7 @@ EXPOSE 8080
 ENV SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/art
 ENV SPRING_DATASOURCE_USERNAME=postgres
 ENV SPRING_DATASOURCE_PASSWORD=postgres
-ENV AI_PYTHON_API_URL=http://art-p:8000/api/ai
+ENV AI_PYTHON_API_URL=http://art-p:8000/api/ai/parse
 
 # 启动命令
 ENTRYPOINT ["java", "-jar", "app.jar"]

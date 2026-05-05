@@ -53,7 +53,7 @@ services:
       SPRING_DATASOURCE_URL: ${DB_URL:?请在 .env 中配置 DB_URL}
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:?请在 .env 中配置 DB_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?请在 .env 中配置 DB_PASSWORD}
-      AI_PYTHON_API_URL: http://art-p:8000/api/ai
+      AI_PYTHON_API_URL: http://art-p:8000/api/ai/parse
     networks:
       - art-network
     depends_on:
