@@ -89,7 +89,7 @@
       }
   
       // 3. 发送 Axios 请求给 Spring Boot（地址从环境变量读取）
-      const baseURL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8080'
+      const baseURL = import.meta.env.VITE_APP_API_URL ?? 'http://localhost:8080'
       const response = await axios.post(`${baseURL}/api/users/register`, payload)
       
       // 4. 处理后端的统一 Result 返回

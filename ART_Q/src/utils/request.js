@@ -3,7 +3,8 @@ import axios from 'axios'
 // 1. 第一步：先创建实例（必须放在最前面！）
 // 通过环境变量区分开发/生产环境：开发用 localhost，生产用服务器 IP
 const request = axios.create({
-  baseURL: import.meta.env.VITE_APP_API_URL || 'http://localhost:8080',
+  // 空字符串 = nginx 代理模式（生产），undefined = 本地开发
+  baseURL: import.meta.env.VITE_APP_API_URL ?? 'http://localhost:8080',
   timeout: 180000 //前端最长等待时间
 })
 
