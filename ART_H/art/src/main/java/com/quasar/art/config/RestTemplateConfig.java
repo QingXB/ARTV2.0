@@ -2,13 +2,17 @@ package com.quasar.art.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
-@Configuration // 🌟 告诉 Spring 这是一个配置类，启动时必须来看一眼
+@Configuration
 public class RestTemplateConfig {
 
-    @Bean // 🌟 告诉 Spring：把这个方法的返回值（RestTemplate）放进你的口袋里，谁用 @Autowired 要，你就给谁！
+    @Bean
     public RestTemplate restTemplate() {
-        return new RestTemplate();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);   // 连接超时 5 秒
+        factory.setReadTimeout(120000);     // 读取超时 120 秒（AI 推理耗时较长）
+        return new RestTemplate(factory);
     }
 }

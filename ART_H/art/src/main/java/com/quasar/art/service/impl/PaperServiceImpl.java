@@ -353,6 +353,7 @@ public List<PaperRelationship> analyzePaperRelations(List<Long> paperIds) {
         // 2. 组装文献数据调用Python服务
         Map<String, Object> pythonRequest = new HashMap<>();
         List<Map<String, String>> paperInfos = new ArrayList<>();
+        List<Paper> analyzedPapers = new ArrayList<>(); // 跟踪实际发送给 Python 的论文
 
         for (Paper paper : papers) {
             PaperAiAnalysis analysis = aiAnalysisRepository.findByPaperId(paper.getId());
@@ -363,6 +364,7 @@ public List<PaperRelationship> analyzePaperRelations(List<Long> paperIds) {
                 info.put("methodology", analysis.getMethodology());
                 info.put("conclusion", analysis.getConclusion());
                 paperInfos.add(info);
+                analyzedPapers.add(paper);
             }
         }
 
@@ -383,13 +385,15 @@ public List<PaperRelationship> analyzePaperRelations(List<Long> paperIds) {
                 List<Map<String, Object>> relationsData = (List<Map<String, Object>>) body.get("data");
                 List<PaperRelationship> results = new ArrayList<>();
 
+                // Python 返回的是数组索引（0,1,2...），需要映射回真实 paperId
                 for (Map<String, Object> rel : relationsData) {
                     PaperRelationship relationship = new PaperRelationship();
-                    // 处理字符串或数字类型的 ID
-                    Object sourceId = rel.get("sourcePaperId");
-                    Object targetId = rel.get("targetPaperId");
-                    relationship.setSourcePaperId(sourceId instanceof Number ? ((Number) sourceId).longValue() : Long.parseLong(sourceId.toString()));
-                    relationship.setTargetPaperId(targetId instanceof Number ? ((Number) targetId).longValue() : Long.parseLong(targetId.toString()));
+                    Object sourceIdx = rel.get("sourcePaperId");
+                    Object targetIdx = rel.get("targetPaperId");
+                    int si = sourceIdx instanceof Number ? ((Number) sourceIdx).intValue() : Integer.parseInt(sourceIdx.toString());
+                    int ti = targetIdx instanceof Number ? ((Number) targetIdx).intValue() : Integer.parseInt(targetIdx.toString());
+                    relationship.setSourcePaperId(analyzedPapers.get(si).getId());
+                    relationship.setTargetPaperId(analyzedPapers.get(ti).getId());
                     relationship.setRelationType((String) rel.get("relationType"));
                     relationship.setDescription((String) rel.get("description"));
                     results.add(relationship);

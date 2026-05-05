@@ -28,7 +28,7 @@ services:
       - "${ART_P_PORT:-8000}:8000"
     volumes:
       - ./ART_P:/app
-      - paper_data:/app/paper
+      - ./ART_H/art/paper:/app/paper
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your-api-key-here}
     networks:
@@ -86,4 +86,3 @@ networks:
 
 volumes:
   postgres_data:
-  paper_data:
