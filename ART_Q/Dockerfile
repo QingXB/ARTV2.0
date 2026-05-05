@@ -13,7 +13,7 @@ COPY ART_Q/ .
 
 # 通过 nginx 代理 API 请求，前端不需要写死服务器地址
 ENV VITE_APP_API_URL=
-ENV VITE_APP_PDF_URL=
+ENV VITE_APP_PDF_URL=/pdf/
 
 # 构建生产版本（输出到 dist/）
 RUN npm run build
