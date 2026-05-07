@@ -31,6 +31,7 @@ services:
       - ./ART_H/art/paper:/app/paper
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your-api-key-here}
+    mem_limit: 512m
     networks:
       - art-network
     restart: unless-stopped
@@ -54,6 +55,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:?请在 .env 中配置 DB_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?请在 .env 中配置 DB_PASSWORD}
       AI_PYTHON_API_URL: http://art-p:8000/api/ai/parse
+      JAVA_TOOL_OPTIONS: "-Xmx256m"
+    mem_limit: 512m
     networks:
       - art-network
     depends_on:
@@ -74,6 +77,7 @@ services:
       # nginx 代理 API 请求，前端不需要写死服务器地址
       VITE_APP_API_URL: ""
       VITE_APP_PDF_URL: ""
+    mem_limit: 128m
     networks:
       - art-network
     depends_on:
