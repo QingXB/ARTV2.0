@@ -274,16 +274,104 @@ const goRegister = () => router.push('/register')
     color: var(--primary-blue);
   }
   
-  @media (max-width: 768px) {
-    .features-grid {
-      grid-template-columns: 1fr;
-      gap: 40px;
+  /* ========== 平板 (<=1024px) ========== */
+  @media (max-width: 1024px) {
+    .navbar {
+      padding: 12px 20px;
+    }
+    .nav-left, .nav-right {
+      gap: 15px;
+    }
+    .nav-logo {
+      margin-right: 10px;
+    }
+    .hero-section {
+      margin-top: 50px;
+      margin-bottom: 50px;
+    }
+    .hero-icon {
+      width: 110px;
+      height: 110px;
     }
     .project-title {
-      font-size: 40px;
+      font-size: 44px;
+    }
+    .features-grid {
+      gap: 40px 50px;
+      margin-bottom: 60px;
+    }
+  }
+
+  /* ========== 手机 (<=768px) ========== */
+  @media (max-width: 768px) {
+    .navbar {
+      padding: 10px 16px;
+    }
+    .nav-link:not(.login-btn) {
+      display: none;
+    }
+    .nav-left {
+      gap: 0;
+    }
+    .nav-logo {
+      margin-right: 0;
+    }
+    .hero-section {
+      margin-top: 36px;
+      margin-bottom: 36px;
+      padding: 0 16px;
+    }
+    .hero-icon {
+      width: 90px;
+      height: 90px;
+    }
+    .project-title {
+      font-size: 32px;
     }
     .project-subtitle {
+      font-size: 16px;
+      margin-top: 12px;
+    }
+    .features-grid {
+      grid-template-columns: 1fr;
+      gap: 24px;
+      padding: 0 16px;
+      margin-bottom: 40px;
+    }
+    .feature-title {
       font-size: 18px;
+    }
+    .feature-desc {
+      font-size: 14px;
+    }
+  }
+
+  /* ========== 小屏手机 (<=480px) ========== */
+  @media (max-width: 480px) {
+    .project-title {
+      font-size: 26px;
+    }
+    .project-subtitle {
+      font-size: 14px;
+    }
+    .hero-icon {
+      width: 70px;
+      height: 70px;
+    }
+    .hero-section {
+      margin-top: 24px;
+      margin-bottom: 24px;
+    }
+    .features-grid {
+      gap: 16px;
+      margin-bottom: 30px;
+    }
+    .feature-card {
+      padding: 14px;
+    }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
     }
   }
   </style>

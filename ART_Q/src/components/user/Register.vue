@@ -265,4 +265,34 @@
   .card-footer a:hover {
     text-decoration: underline;
   }
+
+  @media (max-width: 768px) {
+    .register-card {
+      margin: 30px 16px;
+    }
+    .card-body {
+      padding: 20px 18px;
+    }
+    .top-nav {
+      padding: 0 12px;
+    }
+    .nav-left a, .nav-right a {
+      margin-left: 12px;
+      font-size: 13px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .register-card {
+      margin: 16px 10px;
+      border-radius: 2px;
+    }
+    .card-body {
+      padding: 16px 14px;
+    }
+    .nav-left a:not(:first-child),
+    .nav-right a:not(.active) {
+      display: none;
+    }
+  }
   </style>

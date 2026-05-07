@@ -335,4 +335,39 @@ input:focus {
   line-height: 1;
   white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  .card {
+    padding: 20px 18px;
+    border-radius: 16px;
+  }
+  .title {
+    font-size: 24px;
+  }
+  .wrap {
+    padding: 12px;
+  }
+  input {
+    padding: 10px;
+  }
+  .primary {
+    padding: 10px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 16px 14px;
+    border-radius: 14px;
+  }
+  .title {
+    font-size: 22px;
+  }
+  .sub {
+    font-size: 13px;
+  }
+  .brand span {
+    display: none;
+  }
+}
 </style>

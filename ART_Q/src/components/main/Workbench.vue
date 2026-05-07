@@ -1,7 +1,10 @@
 <template>
     <div class="workbench">
       <header class="header">
-        <div class="logo">📚 智研 ScholarAI 工作台</div>
+        <div class="header-left">
+          <button class="hamburger-btn" @click="sidebarOpen = !sidebarOpen" aria-label="菜单">☰</button>
+          <div class="logo">📚 智研 ScholarAI 工作台</div>
+        </div>
         <div class="user-info">
           <span>欢迎, {{ currentUsername }}</span>
           <button class="logout-btn" @click="handleLogout">退出</button>
@@ -9,7 +12,8 @@
       </header>
   
       <div class="main-container">
-        <aside class="left-panel">
+        <div class="sidebar-overlay" v-if="sidebarOpen" @click="sidebarOpen = false"></div>
+        <aside class="left-panel" :class="{ open: sidebarOpen }">
           <div class="upload-section">
             <input type="file" ref="fileInput" multiple accept="application/pdf" @change="handleFileUpload" style="display: none;" />
             <button class="btn-upload" @click="triggerUpload" :disabled="isUploading">
@@ -387,6 +391,7 @@ const selectPaper = async (paper) => {
   // 🌟 核心修复点 1：把 paper 彻底解构重新赋值，强制触发 Vue 3 渲染！
   selectedPaper.value = { ...paper };
   activeTab.value = 'detail';
+  sidebarOpen.value = false; // 手机端选中后自动收起侧边栏
   
   // 2. 🌟 核心修复点 2：在获取新数据前，手动把 aiSummary 挂载一个"加载中"或"空"的初始状态
   // 这样右侧页面会瞬间从旧数据切过来，显示"暂无解析数据"，体验极佳！
@@ -439,6 +444,7 @@ const selectPaper = async (paper) => {
   const fileInput = ref(null)
   const isUploading = ref(false)
   const isGenerating = ref(false)
+  const sidebarOpen = ref(false)
   const papers = ref([]) // 左侧文献列表
   const selectedPaper = ref(null) // 当前选中的文献
   const activeTab = ref('detail') // 默认激活的 Tab
@@ -1504,10 +1510,196 @@ const exportToMarkdown = () => {
   }
 
   /* ============================================
-   * 响应式细节
+   * 汉堡按钮 & 抽屉遮罩（默认隐藏）
+   * ============================================ */
+  .hamburger-btn {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+  }
+  .hamburger-btn:hover {
+    background: var(--surface-muted);
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .sidebar-overlay {
+    display: none;
+  }
+
+  /* ============================================
+   * 平板 (<=1024px)
    * ============================================ */
   @media (max-width: 1024px) {
     .left-panel { width: 280px; }
     .tab-content { padding: 20px; }
+    .header { padding: 0 18px; }
+    .tabs { padding: 0 16px; }
+  }
+
+  /* ============================================
+   * 手机 (<=768px) — 抽屉模式
+   * ============================================ */
+  @media (max-width: 768px) {
+    .hamburger-btn {
+      display: block;
+    }
+
+    .header {
+      height: 54px;
+      padding: 0 12px;
+    }
+    .logo {
+      font-size: 15px;
+    }
+    .user-info span {
+      display: none;
+    }
+
+    .main-container {
+      position: relative;
+    }
+
+    /* 遮罩层 */
+    .sidebar-overlay {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 99;
+    }
+
+    /* 侧边栏抽屉 */
+    .left-panel {
+      position: fixed;
+      left: 0;
+      top: 54px;
+      bottom: 0;
+      width: 300px;
+      z-index: 100;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      box-shadow: var(--shadow-lg);
+    }
+    .left-panel.open {
+      transform: translateX(0);
+    }
+
+    /* 标签栏可横向滚动 */
+    .tabs {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 0 10px;
+      gap: 0;
+    }
+    .tabs button {
+      padding: 12px 14px;
+      font-size: 13px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .tab-content {
+      padding: 16px;
+    }
+
+    /* AI 解析卡片 */
+    .ai-card {
+      padding: 16px;
+    }
+    .ai-card h4 {
+      font-size: 13px;
+    }
+    .ai-card p {
+      font-size: 13px;
+    }
+    .doc-title {
+      font-size: 18px;
+    }
+
+    /* 综述大纲 */
+    .outline-view .actions {
+      padding: 24px 16px;
+    }
+    .outline-result pre {
+      padding: 16px;
+      font-size: 13px;
+      overflow-x: auto;
+    }
+
+    /* 勾选面板 */
+    .selection-panel h3 {
+      font-size: 16px;
+    }
+    .paper-checklist {
+      max-height: 200px;
+    }
+
+    /* 关系图谱 */
+    .relation-list {
+      grid-template-columns: 1fr;
+    }
+    .relations-result .result-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    /* 按钮 */
+    .btn-generate {
+      padding: 10px 20px;
+      font-size: 13px;
+    }
+    .btn-export {
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+    .btn-cancel {
+      padding: 8px 14px;
+      font-size: 12px;
+    }
+  }
+
+  /* ============================================
+   * 小屏手机 (<=480px)
+   * ============================================ */
+  @media (max-width: 480px) {
+    .left-panel {
+      width: 260px;
+    }
+    .header {
+      height: 48px;
+      padding: 0 8px;
+    }
+    .logo {
+      font-size: 14px;
+    }
+    .tab-content {
+      padding: 12px;
+    }
+    .ai-card {
+      padding: 12px;
+    }
+    .doc-title {
+      font-size: 16px;
+    }
+    .outline-view .actions {
+      padding: 18px 12px;
+    }
+    .outline-result pre {
+      padding: 12px;
+      font-size: 12px;
+    }
+    .bottom-actions {
+      flex-direction: column;
+      gap: 8px;
+    }
   }
   </style>
