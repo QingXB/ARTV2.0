@@ -30,8 +30,8 @@ public class User {
 
     private String avatar;
 
-    @Column(columnDefinition = "smallint default 1")
-    private Integer status;
+    @Column
+    private Integer status = 1;
 
     // 🌟 神器：插入数据时，Hibernate 会自动填入当前时间，不需要你手动 setCreatedAt
     @CreationTimestamp 

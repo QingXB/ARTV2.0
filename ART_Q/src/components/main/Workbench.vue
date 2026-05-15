@@ -17,13 +17,49 @@
           <div class="upload-section">
             <input type="file" ref="fileInput" multiple accept="application/pdf" @change="handleFileUpload" style="display: none;" />
             <button class="btn-upload" @click="triggerUpload" :disabled="isUploading">
-              <i class="icon-plus"></i> {{ isUploading ? '正在上传中...' : '上传 PDF 文献' }}
+              <i class="icon-plus"></i> {{ isUploading ? '上传中...' : '上传 PDF' }}
+            </button>
+            <button class="btn-batch-parse" @click="parseAllPapers" title="一键解析所有待解析文献">
+              🔥 批量解析
             </button>
           </div>
-  
+
+          <div class="search-section">
+            <input
+              type="text"
+              v-model="searchKeyword"
+              placeholder="搜索文献标题..."
+              @keyup.enter="handleSearch"
+              class="search-input"
+            />
+            <select v-model="filterStatus" @change="handleSearch" class="filter-select">
+              <option :value="null">全部状态</option>
+              <option :value="0">待解析</option>
+              <option :value="1">解析中</option>
+              <option :value="2">已解析</option>
+              <option :value="3">解析失败</option>
+            </select>
+          </div>
+
           <div class="paper-list">
-            <h3>我的文献库 ({{ papers.length }})</h3>
-            <ul>
+            <h3>文献库 ({{ totalPapers }})</h3>
+
+            <!-- 加载状态 -->
+            <div v-if="isLoading" class="loading-state">
+              <div class="spinner"></div>
+              <p>加载中...</p>
+            </div>
+
+            <!-- 空状态引导 -->
+            <div v-else-if="papers.length === 0" class="empty-state">
+              <div class="empty-icon">📚</div>
+              <p v-if="searchKeyword || filterStatus !== null">没有找到匹配的文献</p>
+              <p v-else>暂无文献</p>
+              <p class="empty-hint">点击上方「上传 PDF」添加第一篇文献</p>
+            </div>
+
+            <!-- 文献列表 -->
+            <ul v-else>
               <li 
                 v-for="paper in papers" 
                 :key="paper.id" 
@@ -52,6 +88,13 @@
 </div>
               </li>
             </ul>
+
+            <!-- 分页控制 -->
+            <div class="pagination" v-if="totalPages > 1">
+              <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 0">上一页</button>
+              <span>{{ currentPage + 1 }} / {{ totalPages }}</span>
+              <button @click="goToPage(currentPage + 1)" :disabled="currentPage >= totalPages - 1">下一页</button>
+            </div>
           </div>
         </aside>
   
@@ -315,7 +358,8 @@ const triggerParse = async (paper) => {
         });
         
         // 找到当前正在解析的这篇文献的新数据
-        const papersList = res.data || res;
+        const rawData = res.data || res;
+        const papersList = Array.isArray(rawData) ? rawData : (rawData.content || []);
         const updatedPaper = papersList.find(p => p.id === paper.id);
 
         if (updatedPaper) {
@@ -447,39 +491,83 @@ const selectPaper = async (paper) => {
   const sidebarOpen = ref(false)
   const papers = ref([]) // 左侧文献列表
   const selectedPaper = ref(null) // 当前选中的文献
-  const activeTab = ref('detail') // 默认激活的 Tab
-  const generatedOutline = ref('') // 生成的综述文本
+  const activeTab = ref('detail')
+  const generatedOutline = ref('')
+  const searchKeyword = ref('')
+  const filterStatus = ref(null)
+  const currentPage = ref(0)
+  const pageSize = ref(10)
+  const totalPapers = ref(0)
+  const totalPages = ref(0)
+  const isLoading = ref(false)
   
   // 触发原生上传点击
   const triggerUpload = () => {
     fileInput.value.click()
   }
   
-  // 📌 接口预留 1：获取用户的文献库列表
-// 📌 真实接口 1：获取用户的文献库列表
-const fetchPapers = async () => {
+  // 📌 获取用户的文献库列表（支持分页、搜索、筛选）
+const fetchPapers = async (page = 0, size = 10) => {
   try {
-    // 1. 拿到本地门票
+    isLoading.value = true
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-    
-    // 2. 发起真实网络请求
-    const res = await request.get('/api/papers/list', {
-      headers: { 
-        'Authorization': `Bearer ${token}` 
-      }
+
+    const params = new URLSearchParams({ page, size })
+    if (searchKeyword.value) params.append('keyword', searchKeyword.value)
+    if (filterStatus.value !== null) params.append('status', filterStatus.value)
+
+    const res = await request.get(`/api/papers/list?${params.toString()}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
     });
 
-    // 3. 拦截器已经把 Result 外壳剥掉了，res 直接就是那个 List<Paper> 数组
-    papers.value = res; 
-    
-    // 默认选中列表里的第一篇论文（如果列表有数据的话）
+    papers.value = res.content || res
+    totalPapers.value = res.totalElements || res.length || 0
+    totalPages.value = res.totalPages || 1
+    currentPage.value = res.page || page
+
     if (papers.value && papers.value.length > 0) {
-      selectPaper(papers.value[0]);
+      selectPaper(papers.value[0])
     }
 
   } catch (error) {
-    console.error("获取文献列表失败，错误详情:", error);
+    console.error("获取文献列表失败:", error)
+  } finally {
+    isLoading.value = false
   }
+}
+
+// 搜索和筛选
+const handleSearch = () => {
+  currentPage.value = 0
+  fetchPapers(0, pageSize.value)
+}
+
+// 批量解析
+const parseAllPapers = async () => {
+  const unparsedPapers = papers.value.filter(p => p.parseStatus === 0)
+  if (unparsedPapers.length === 0) {
+    alert('没有待解析的文献')
+    return
+  }
+  if (!confirm(`确定要批量解析 ${unparsedPapers.length} 篇文献吗？`)) return
+
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    await request.post('/api/papers/parse-all', {}, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    alert(`已提交 ${unparsedPapers.length} 篇文献的解析任务，请耐心等待...`)
+    await fetchPapers()
+  } catch (error) {
+    console.error('批量解析失败:', error)
+    alert('批量解析失败，请重试')
+  }
+}
+
+// 分页
+const goToPage = (page) => {
+  if (page < 0 || page >= totalPages.value) return
+  fetchPapers(page, pageSize.value)
 }
   
 // 📌 纯上传逻辑：只负责存库和刷新列表
@@ -507,8 +595,8 @@ const handleFileUpload = async (event) => {
     // 2. 成功提示
     alert('✅ 文献上传成功！点击列表中的“解析”按钮即可开始分析。')
     
-    // 3. 🌟 关键：只刷新列表，不要去触发 selectPaper
-    await fetchPapers()
+    // 3. 🌟 关键：只刷新列表
+    await fetchPapers(0, pageSize.value)
 
   } catch (error) {
     console.error('上传失败:', error)
@@ -826,7 +914,7 @@ const exportToMarkdown = () => {
 
   .btn-upload {
     width: 100%;
-    padding: 12px 16px;
+    margin-bottom: 8px;
     background: var(--gradient-primary);
     color: white;
     border: none;
@@ -837,6 +925,54 @@ const exportToMarkdown = () => {
     transition: var(--transition);
     box-shadow: var(--shadow-glow);
     letter-spacing: 0.3px;
+    padding: 10px 16px;
+  }
+  .btn-batch-parse {
+    width: 100%;
+    padding: 10px 16px;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .btn-batch-parse:hover {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    transform: translateY(-1px);
+  }
+
+  .search-section {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    outline: none;
+    transition: var(--transition);
+  }
+  .search-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  }
+  .filter-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    background: var(--surface);
+    cursor: pointer;
+    outline: none;
   }
   .btn-upload:hover {
     background: var(--gradient-hover);
@@ -1167,6 +1303,67 @@ const exportToMarkdown = () => {
     text-align: center;
     gap: 12px;
     padding: 60px 20px;
+  }
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 8px;
+  }
+  .empty-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+
+  .loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+  }
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 12px;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .pagination button {
+    padding: 6px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .pagination button:hover:not(:disabled) {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+  .pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .pagination span {
+    font-size: 13px;
+    color: var(--text-secondary);
   }
   .empty-state::before {
     content: "";

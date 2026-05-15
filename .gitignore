@@ -6,3 +6,5 @@ backups/
 ART_P/venv/
 .idea/
 ART_P/__pycache__/
+script/.logs/
+script/.deploy-local.pids

@@ -1,6 +1,7 @@
 package com.quasar.art.service.impl;
 
 
+import com.quasar.art.dto.PageDTO;
 import com.quasar.art.entity.Paper.Paper;
 import com.quasar.art.entity.Paper.PaperAiAnalysis;
 import com.quasar.art.entity.Paper.PaperRelationship;
@@ -32,6 +33,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class PaperServiceImpl implements PaperService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PaperServiceImpl.class);
 
     @Autowired
     private PaperRepository paperRepository;
@@ -104,8 +107,38 @@ public class PaperServiceImpl implements PaperService {
 
     @Override
     public List<Paper> getUserPapers(Long userId) {
-        // 直接调用 Repository 里我们早就写好的方法，底层会自动生成 SQL 去查
         return paperRepository.findByUserId(userId);
+    }
+
+    @Override
+    public PageDTO<Paper> getUserPapers(Long userId, int page, int size, String keyword, Integer status) {
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(
+                page, size, org.springframework.data.domain.Sort.by("createdAt").descending());
+
+        org.springframework.data.domain.Page<Paper> paperPage;
+        if (keyword != null && !keyword.trim().isEmpty() && status != null) {
+            paperPage = paperRepository.findByUserIdAndTitleContainingAndParseStatus(userId, keyword.trim(), status, pageable);
+        } else if (keyword != null && !keyword.trim().isEmpty()) {
+            paperPage = paperRepository.findByUserIdAndTitleContaining(userId, keyword.trim(), pageable);
+        } else if (status != null) {
+            paperPage = paperRepository.findByUserIdAndParseStatus(userId, status, pageable);
+        } else {
+            paperPage = paperRepository.findByUserId(userId, pageable);
+        }
+
+        return PageDTO.of(paperPage.getContent(), page, size, paperPage.getTotalElements(), paperPage.getTotalPages());
+    }
+
+    @Override
+    public int triggerBatchAnalysis(Long userId) {
+        List<Paper> unparsedPapers = paperRepository.findByUserId(userId).stream()
+                .filter(p -> p.getParseStatus() != null && p.getParseStatus() == 0)
+                .collect(java.util.stream.Collectors.toList());
+
+        for (Paper paper : unparsedPapers) {
+            triggerAiAnalysis(paper.getId());
+        }
+        return unparsedPapers.size();
     }
 
     @Override

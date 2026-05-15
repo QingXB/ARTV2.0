@@ -1,30 +1,55 @@
 import axios from 'axios'
+import router from '../router'
 
-// 1. 第一步：先创建实例（必须放在最前面！）
-// 通过环境变量区分开发/生产环境：开发用 localhost，生产用服务器 IP
 const request = axios.create({
-  // 空字符串 = nginx 代理模式（生产），undefined = 本地开发
   baseURL: import.meta.env.VITE_APP_API_URL ?? 'http://localhost:8080',
-  timeout: 180000 //前端最长等待时间
+  timeout: 180000
 })
 
-// 2. 第二步：给已经创建好的 request 挂载拦截器
+// 响应拦截器
 request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code === 200) {
-      return res.data 
+      return res.data
+    } else if (res.code === 401) {
+      alert(res.message || '登录已过期，请重新登录')
+      localStorage.clear()
+      sessionStorage.clear()
+      router.push('/login')
+      return Promise.reject(new Error(res.message || '未登录'))
+    } else if (res.code === 429) {
+      alert(res.message || '请求过于频繁，请稍后再试')
+      return Promise.reject(new Error(res.message))
     } else {
-      alert(res.message || '业务处理失败') 
+      alert(res.message || '操作失败')
       return Promise.reject(new Error(res.message || 'Error'))
     }
   },
   (error) => {
-    console.error('网络请求崩溃啦:', error)
-    alert('网络异常，请稍后再试！')
+    console.error('网络请求错误:', error)
+    if (error.response) {
+      switch (error.response.status) {
+        case 401:
+          alert('登录已过期，请重新登录')
+          localStorage.clear()
+          sessionStorage.clear()
+          router.push('/login')
+          break
+        case 429:
+          alert('请求过于频繁，请稍后再试')
+          break
+        case 500:
+          alert('服务器内部错误，请联系管理员')
+          break
+        default:
+          alert('网络异常，请检查网络后重试')
+      }
+    } else {
+      alert('网络连接失败，请检查网络')
+    }
     return Promise.reject(error)
   }
 )
 
-// 3. 第三步：导出
 export default request
