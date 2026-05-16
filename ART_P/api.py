@@ -2,12 +2,14 @@
 API 路由 - ART_P Python AI 微服务
 =====================================
 
-提供两个核心接口：
+提供3个核心接口：
 1. /parse - 单篇 PDF 文献解析，提取研究问题、方法、结论
 2. /generate-outline - 多篇文献综述大纲生成
+3. /analyze-relations - 文献关系分析
+4. /embedding - 文本向量化（新增）
 
 作者: ART Team
-版本: v1.1
+版本: v1.2
 """
 
 # ============================================================
@@ -70,6 +72,17 @@ class RelationRequest(BaseModel):
         papers: 多篇文献的列表，每篇包含核心三要素
     """
     papers: list[PaperData]
+
+class EmbeddingRequest(BaseModel):
+    """
+    文本向量化请求体
+
+    属性:
+        text: 需要向量化的文本
+        model: 可选，使用的模型名称
+    """
+    text: str
+    model: str = "text-embedding-3-small"
 
 # ============================================================
 # 3. API 接口实现
@@ -373,3 +386,74 @@ def analyze_relations(req: RelationRequest):
     except Exception as e:
         print(f"❌ 关系分析失败: {e}")
         raise HTTPException(status_code=500, detail=f"关系分析失败: {str(e)}")
+
+
+@router.post("/embedding")
+def generate_embedding(req: EmbeddingRequest):
+    """
+    接口 4: 文本向量化
+
+    功能:
+        1. 接收文本内容
+        2. 调用 Embedding 模型生成高维向量
+        3. 返回向量数组
+
+    参数:
+        req: EmbeddingRequest，包含 text 和可选的 model
+
+    返回:
+        {
+            "code": 200,
+            "data": [0.123, -0.456, 0.789, ...],
+            "message": "向量化成功",
+            "dimension": 384,
+            "model": "text-embedding-3-small"
+        }
+
+    错误:
+        500: 向量化过程出错
+        503: 无法连接 AI 服务
+        504: AI 服务响应超时
+    """
+    try:
+        print(f"📥 收到向量化任务，文本长度: {len(req.text)} 字符")
+
+        if not req.text.strip():
+            raise ValueError("文本内容不能为空")
+
+        # 调用 Embedding API
+        # 注意：使用 OpenAI-compatible 的 embedding 接口
+        response = config.client.embeddings.create(
+            input=req.text,
+            model=req.model
+        )
+
+        # 提取向量数据
+        embedding = response.data[0].embedding
+        dimension = len(embedding)
+
+        print(f"✅ 向量化成功！向量维度: {dimension}")
+
+        return {
+            "code": 200,
+            "data": embedding,
+            "message": "向量化成功",
+            "dimension": dimension,
+            "model": req.model
+        }
+
+    except httpx.TimeoutException as e:
+        print(f"❌ 向量化超时: {e}")
+        raise HTTPException(status_code=504, detail="向量化请求超时，请重试")
+
+    except httpx.ConnectError as e:
+        print(f"❌ 连接失败: {e}")
+        raise HTTPException(status_code=503, detail="无法连接到 AI 服务")
+
+    except ValueError as e:
+        print(f"❌ 参数错误: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        print(f"❌ 向量化失败: {e}")
+        raise HTTPException(status_code=500, detail=f"向量化失败: {str(e)}")

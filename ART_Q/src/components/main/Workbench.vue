@@ -102,7 +102,8 @@
           <div class="tabs">
             <button :class="{ active: activeTab === 'detail' }" @click="activeTab = 'detail'">单篇精读</button>
             <button :class="{ active: activeTab === 'outline' }" @click="activeTab = 'outline'">💡 综述提纲生成</button>
-            <button :class="{ active: activeTab === 'graph' }" @click="activeTab = 'graph'">🕸️ 观点传承图谱</button>
+            <!-- <button :class="{ active: activeTab === 'graph' }" @click="activeTab = 'graph'; activeGraphTab = 'relation'">🕸️ 观点传承图谱</button> -->
+            <button :class="{ active: activeTab === 'similarity' }" @click="activeTab = 'similarity'">📊 语义相似度图谱</button>
           </div>
   
           <div v-if="activeTab === 'detail'" class="tab-content detail-view">
@@ -229,6 +230,10 @@
             </div>
           </div>
 
+          <div v-if="activeTab === 'similarity'" class="tab-content similarity-view">
+            <SimilarityGraph @send-to-review="handleSendToReview" />
+          </div>
+
         </main>
       </div>
     </div>
@@ -238,6 +243,7 @@
   import { ref, onMounted } from 'vue'
   import { useRouter } from 'vue-router' // 如果你还没有引入 router
   import request from '@/utils/request.js'
+  import SimilarityGraph from './SimilarityGraph.vue'
 
 const router = useRouter()
 // 存放历史记录的数组
@@ -492,6 +498,7 @@ const selectPaper = async (paper) => {
   const papers = ref([]) // 左侧文献列表
   const selectedPaper = ref(null) // 当前选中的文献
   const activeTab = ref('detail')
+  const activeGraphTab = ref('relation') // 图谱子标签页
   const generatedOutline = ref('')
   const searchKeyword = ref('')
   const filterStatus = ref(null)
@@ -745,6 +752,23 @@ const exportToMarkdown = () => {
   URL.revokeObjectURL(url);
   
   console.log('🎉 导出成功！');
+};
+
+// ==========================================
+// 🌟 语义相似度图谱：发送选中节点到综述模块
+// ==========================================
+const handleSendToReview = (paperIds) => {
+  if (paperIds.length < 2) {
+    alert('请至少选择2篇文献！');
+    return;
+  }
+  
+  selectedPaperIds.value = paperIds;
+  generatedOutline.value = '';
+  activeTab.value = 'outline';
+  isSelectingPapers.value = true;
+  
+  // alert(`已选择 ${paperIds.length} 篇文献，请点击"开始生成"按钮创建综述！`);
 };
   
   // 初始化时拉取列表
