@@ -8,6 +8,7 @@
 #   ./script/deploy-local.sh --start    # 启动全部
 #   ./script/deploy-local.sh --stop     # 停止全部
 #   ./script/deploy-local.sh --status   # 查看状态
+#   ./script/deploy-local.sh --clean-venv   # 清理并重建 Python 虚拟环境
 # ============================================
 
 set -e
@@ -100,7 +101,7 @@ kill_port() {
     if [ -n "$pid" ] && [ "$pid" != "0" ]; then
         warn "端口 $port 被占用 (PID: $pid), 正在关闭..."
         taskkill //PID "$pid" //F //T > /dev/null 2>&1 || true
-        sleep 1
+        sleep 3
     fi
 }
 
@@ -157,7 +158,8 @@ install_dependencies() {
         info "创建 Python 虚拟环境..."
         $PYTHON_CMD -m venv "$venv_dir"
     fi
-    "$venv_dir/Scripts/pip.exe" install -q -r "$ART_P_DIR/requirements.txt" 2>&1 | tail -1 || true
+    "$venv_dir/Scripts/python.exe" -m pip install --upgrade pip -q
+    "$venv_dir/Scripts/python.exe" -m pip install -r "$ART_P_DIR/requirements.txt" -q 2>&1 | tail -1 || true
     ok "Python 依赖就绪"
 
     step "Node.js 依赖 (ART_Q)..."
@@ -172,6 +174,61 @@ install_dependencies() {
         err "未找到 mvnw.cmd: $ART_H_DIR"; exit 1
     fi
     ok "Maven wrapper 就绪"
+}
+
+# ============================================
+#  强制重建 Python 虚拟环境（无交互）
+# ============================================
+clean_venv() {
+    section "重建 Python 虚拟环境"
+    local venv_dir="$ART_P_DIR/venv"
+    
+    # 直接检测 Python 命令，不用变量
+    local python_cmd=""
+    for cmd in python python3 py; do
+        if command -v "$cmd" &> /dev/null; then
+            python_cmd="$cmd"
+            break
+        fi
+    done
+    
+    if [ -z "$python_cmd" ]; then
+        err "未找到 Python 命令！"
+        return 1
+    fi
+    
+    info "使用 Python 命令: $python_cmd"
+    
+    # 删除旧环境
+    if [ -d "$venv_dir" ]; then
+        info "删除旧的虚拟环境..."
+        rm -rf "$venv_dir"
+        ok "已删除旧 venv"
+    fi
+    
+    sleep 1
+    
+    # 重建
+    info "创建新的虚拟环境..."
+    $python_cmd -m venv "$venv_dir"
+    
+    if [ ! -d "$venv_dir" ]; then
+        err "虚拟环境创建失败！"
+        return 1
+    fi
+    ok "虚拟环境已创建"
+    
+    # 升级 pip 和安装依赖
+    info "升级 pip..."
+    "$venv_dir/Scripts/python.exe" -m pip install --upgrade pip -q
+    
+    if [ -f "$ART_P_DIR/requirements.txt" ]; then
+        info "安装依赖包..."
+        "$venv_dir/Scripts/python.exe" -m pip install -r "$ART_P_DIR/requirements.txt" -q
+        ok "依赖安装完成"
+    fi
+    
+    ok "venv 重建完成！"
 }
 
 # ============================================
@@ -259,7 +316,7 @@ do_start() {
     # ---- ART_H: Java Spring Boot 后端 ----
     if [ "$svc_h" = true ]; then
         section "启动 ART_H (Java 后端, 端口 $PORT_H)"
-        (cd "$ART_H_DIR" && cmd //c mvnw.cmd spring-boot:run > "$LOG_DIR/art_h.log" 2>&1) &
+        (cd "$ART_H_DIR" && ./mvnw.cmd spring-boot:run > "$LOG_DIR/art_h.log" 2>&1) &
         echo "ART_H=$!" >> "$PID_FILE"
         ok "ART_H 已启动 (PID: $!)"
 
@@ -470,6 +527,7 @@ show_menu() {
     echo -e "${MAGENTA}[管理]${NC}"
     echo -e "  ${GREEN}s${NC}) 查看状态"
     echo -e "  ${GREEN}l${NC}) 查看日志"
+    echo -e "  ${GREEN}c${NC}) 清理并重建 Python 虚拟环境"
     echo -e "  ${GREEN}x${NC}) 停止服务"
     echo -e "  ${GREEN}0${NC}) 退出"
     echo ""
@@ -501,6 +559,7 @@ dispatch() {
         8) configure_services ;;
         s|S) show_status ;;
         l|L) show_logs ;;
+        c|C) clean_venv ;;
         x|X) do_stop ;;
         0|q|Q) echo -e "${GREEN}再见!${NC}"; exit 0 ;;
         "") ;;
@@ -525,13 +584,14 @@ main() {
                 ;;
             --stop)    do_stop ;;
             --status)  show_status ;;
+            --clean-venv) clean_venv ;;
             --restart)
                 do_stop; sleep 1
                 SELECTED_SERVICES_ARR=("art-p" "art-h" "art-q")
                 do_start
                 ;;
             *)
-                echo "用法: $0 [--start|--stop|--status|--restart] [--skip-install]"
+                echo "用法: $0 [--start|--stop|--status|--restart|--clean-venv] [--skip-install]"
                 exit 1
                 ;;
         esac
