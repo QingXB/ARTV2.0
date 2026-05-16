@@ -181,6 +181,19 @@ POST /api/ai/generate-outline  # 综述生成
 |------|------|------|
 | relation_type | VARCHAR(50) | INHERIT/CONTRADICT/SUPPORT |
 
+#### paper_embeddings (论文向量表)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGSERIAL | 主键 |
+| paper_id | BIGINT | 关联的论文ID (唯一) |
+| embedding_vector | TEXT | 高维向量（JSON数组格式） |
+| vector_dimension | INT | 向量维度 |
+| model_name | VARCHAR(100) | 生成向量的模型名称 |
+| created_at | TIMESTAMP | 创建时间 |
+| updated_at | TIMESTAMP | 更新时间 |
+
+
 ---
 
 ## 7. 特色功能
@@ -220,13 +233,35 @@ POST /api/ai/generate-outline  # 综述生成
 | Java | JDK 21+ |
 | Python | 3.8+ |
 | Node.js | 18+ |
-| PostgreSQL | 13+ |
+| PostgreSQL | 13+（可选） |
 | Docker | 20+ (可选) |
 | Docker Compose | 2.0+ (可选) |
 
 ---
+### 方式一：脚本部署
 
-### 方式一：Docker 部署（推荐）
+#### 1. 运行脚本
+
+在git仓库根目录执行：
+
+```bash
+./script/deploy-local.sh
+```
+
+ #### 2. 重构python虚拟环境
+
+ 输入选项`c`，等待脚本执行完毕。
+
+#### 3. 配置api秘钥
+
+输入选项`7`，输入API密钥，等待脚本执行完毕。
+
+#### 4. 启动服务
+
+输入选项`1`，等待脚本执行完毕，即可启动服务。
+ 
+
+### 方式二：Docker 部署（推荐）
 
 #### 1. 配置文件
 
@@ -284,7 +319,7 @@ docker compose up -d --build
 
 ---
 
-### 方式二：本地部署
+### 方式三：本地部署
 
 #### 1. 环境准备
 
@@ -342,6 +377,8 @@ npm run dev
 2. **Python微服务** - AI解析 (端口8000)
 3. **Java后端** - 业务逻辑 (端口8080)
 4. **Vue前端** - 用户界面 (端口5173)
+
+---
 
 ---
 
