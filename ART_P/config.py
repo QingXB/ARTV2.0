@@ -144,6 +144,19 @@ client = OpenAI(
     timeout=REQUEST_TIMEOUT
 )
 
+# Embedding 专用客户端（DeepSeek 不支持 embedding，需要单独配置）
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "sk-xwffdzenucgssipmchllxhstwccflrhgiliplyvpmxjfdbox")
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "https://api.openai.com/v1")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-ada-002")
+
+embedding_client = OpenAI(
+    api_key=EMBEDDING_API_KEY,
+    base_url=EMBEDDING_BASE_URL,
+    http_client=http_client,
+    max_retries=MAX_RETRIES,
+    timeout=REQUEST_TIMEOUT
+)
+
 # ============================================================
 # 6. 应用配置
 # ============================================================

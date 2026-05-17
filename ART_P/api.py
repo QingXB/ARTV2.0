@@ -421,10 +421,10 @@ def generate_embedding(req: EmbeddingRequest):
         if not req.text.strip():
             raise ValueError("文本内容不能为空")
 
-        # 使用传入的模型，不做自动替换
-        model_to_use = req.model
+        # 使用 embedding 专用客户端（DeepSeek 不支持 embedding）
+        model_to_use = config.EMBEDDING_MODEL
         print(f"🚀 正在调用 Embedding API，使用模型: {model_to_use}")
-        response = config.client.embeddings.create(
+        response = config.embedding_client.embeddings.create(
             input=req.text,
             model=model_to_use
         )
