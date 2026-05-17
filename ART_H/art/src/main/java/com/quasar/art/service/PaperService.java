@@ -10,6 +10,7 @@ import com.quasar.art.entity.Paper.ReviewTask;
 
 public interface PaperService {
     List<Paper> uploadPaper(MultipartFile[] files, Long userId);
+    List<Paper> uploadPapers(List<MultipartFile> files, Long userId);
     PageDTO<Paper> getUserPapers(Long userId, int page, int size, String keyword, Integer status);
     List<Paper> getUserPapers(Long userId);
     void triggerAiAnalysis(Long paperId);

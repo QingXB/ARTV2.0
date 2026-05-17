@@ -44,7 +44,7 @@ public class PaperController {
 
     @PostMapping("/upload")
     public Result<List<Paper>> uploadPaper(
-            @RequestParam("file") MultipartFile[] files,
+            @RequestParam("files") MultipartFile[] files,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long userId = getUserIdFromToken(authHeader);
         if (userId == null) {

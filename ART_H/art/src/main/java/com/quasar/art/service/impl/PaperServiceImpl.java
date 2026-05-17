@@ -106,20 +106,7 @@ public class PaperServiceImpl implements PaperService {
 
     @Override
     public List<Paper> uploadPapers(List<MultipartFile> files, Long userId) {
-        List<Paper> uploadedPapers = new ArrayList<>();
-        
-        for (MultipartFile file : files) {
-            try {
-                if (!file.isEmpty()) {
-                    Paper paper = uploadPaper(file, userId);
-                    uploadedPapers.add(paper);
-                }
-            } catch (Exception e) {
-                log.error("上传文件失败: " + file.getOriginalFilename(), e);
-            }
-        }
-        
-        return uploadedPapers;
+        return uploadPaper(files.toArray(new MultipartFile[0]), userId);
     }
     
 
