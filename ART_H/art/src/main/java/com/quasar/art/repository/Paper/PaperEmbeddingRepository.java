@@ -17,4 +17,6 @@ public interface PaperEmbeddingRepository extends JpaRepository<PaperEmbedding, 
     boolean existsByPaperId(Long paperId);
     
     void deleteByPaperId(Long paperId);
+    
+    void deleteByPaperIdIn(List<Long> paperIds);
 }

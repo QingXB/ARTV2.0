@@ -19,6 +19,17 @@ const goToRegister = () => {
   router.push('/register') // 这里的 '/register' 要和你在 router/index.js 里配置的路径一致
 }
 
+const showToast = ref(false)
+const toastMessage = ref('')
+
+const handleSmsLogin = () => {
+  toastMessage.value = '此功能尚在开发中，敬请期待！'
+  showToast.value = true
+  setTimeout(() => {
+    showToast.value = false
+  }, 2500)
+}
+
 async function onSubmit(e) {
   e.preventDefault()
   
@@ -84,6 +95,9 @@ async function onSubmit(e) {
     </header>
 
     <main class="wrap">
+      <div v-if="showToast" class="toast">
+        {{ toastMessage }}
+      </div>
       <section class="card">
         <h1 class="title">登录</h1>
         <p class="sub">进入工作台，继续你的文献综述。</p>
@@ -119,7 +133,7 @@ async function onSubmit(e) {
             <span>或</span>
           </div>
 
-          <button class="ghost" type="button" @click.prevent>
+          <button class="ghost" type="button" @click.prevent="handleSmsLogin">
             使用验证码登录
           </button>
 
@@ -134,6 +148,35 @@ async function onSubmit(e) {
 </template>
 
 <style scoped>
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.9);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 9999;
+  animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.25);
+  backdrop-filter: blur(10px);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .page {
   position: relative;
   width: 100%;
@@ -227,34 +270,52 @@ async function onSubmit(e) {
 
 .form {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
 .field {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .label {
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.65);
+  font-size: 13px;
+  color: rgba(15, 23, 42, 0.7);
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
 
 input {
   width: 100%;
-  padding: 12px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.85);
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.9);
   outline: none;
+  font-size: 15px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+}
+
+input::placeholder {
+  color: rgba(15, 23, 42, 0.35);
   font-size: 14px;
 }
 
+input:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(255, 255, 255, 0.95);
+}
+
 input:focus {
-  border-color: rgba(59, 130, 246, 0.55);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1), 0 4px 12px rgba(59, 130, 246, 0.08);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+input:focus::placeholder {
+  color: rgba(59, 130, 246, 0.5);
 }
 
 .row {
@@ -348,7 +409,8 @@ input:focus {
     padding: 12px;
   }
   input {
-    padding: 10px;
+    padding: 12px 14px;
+    font-size: 14px;
   }
   .primary {
     padding: 10px 12px;

@@ -103,6 +103,24 @@ public class PaperServiceImpl implements PaperService {
             throw new RuntimeException("无法保存文件，请检查目录权限!", ex);
         }
     }
+
+    @Override
+    public List<Paper> uploadPapers(List<MultipartFile> files, Long userId) {
+        List<Paper> uploadedPapers = new ArrayList<>();
+        
+        for (MultipartFile file : files) {
+            try {
+                if (!file.isEmpty()) {
+                    Paper paper = uploadPaper(file, userId);
+                    uploadedPapers.add(paper);
+                }
+            } catch (Exception e) {
+                log.error("上传文件失败: " + file.getOriginalFilename(), e);
+            }
+        }
+        
+        return uploadedPapers;
+    }
     
 
     @Override
@@ -131,14 +149,30 @@ public class PaperServiceImpl implements PaperService {
 
     @Override
     public int triggerBatchAnalysis(Long userId) {
-        List<Paper> unparsedPapers = paperRepository.findByUserId(userId).stream()
+        log.info("开始批量解析，用户ID: {}", userId);
+        
+        List<Paper> userPapers = paperRepository.findByUserId(userId);
+        log.info("用户共有 {} 篇文献", userPapers.size());
+        
+        List<Paper> unparsedPapers = userPapers.stream()
                 .filter(p -> p.getParseStatus() != null && p.getParseStatus() == 0)
                 .collect(java.util.stream.Collectors.toList());
+        
+        log.info("找到 {} 篇待解析文献", unparsedPapers.size());
 
+        int count = 0;
         for (Paper paper : unparsedPapers) {
-            triggerAiAnalysis(paper.getId());
+            try {
+                log.info("开始解析文献: {} (ID: {})", paper.getTitle(), paper.getId());
+                triggerAiAnalysis(paper.getId());
+                count++;
+            } catch (Exception e) {
+                log.error("解析文献失败: {} (ID: {})", paper.getTitle(), paper.getId(), e);
+            }
         }
-        return unparsedPapers.size();
+        
+        log.info("批量解析完成，共提交了 {} 篇文献", count);
+        return count;
     }
 
     @Override

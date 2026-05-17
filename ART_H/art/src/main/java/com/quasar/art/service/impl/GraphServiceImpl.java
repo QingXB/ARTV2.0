@@ -8,13 +8,13 @@ import com.quasar.art.repository.Paper.PaperAiAnalysisRepository;
 import com.quasar.art.repository.Paper.PaperEmbeddingRepository;
 import com.quasar.art.repository.Paper.PaperRepository;
 import com.quasar.art.service.GraphService;
+import com.quasar.art.service.PaperEmbeddingService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -36,7 +36,9 @@ public class GraphServiceImpl implements GraphService {
     @Autowired
     private ObjectMapper objectMapper;
 
-    // ====================== 图谱计算（原有，正常运行）======================
+    @Autowired
+    private PaperEmbeddingService paperEmbeddingService;
+
     @Override
     public GraphDTO calculateSimilarity(Long userId, double threshold) {
         List<Paper> papers = paperRepository.findByUserId(userId);
@@ -51,6 +53,25 @@ public class GraphServiceImpl implements GraphService {
     public GraphDTO calculateSimilarityByPaperIds(List<Long> paperIds, double threshold) {
         log.info("开始计算 {} 篇文献的语义相似度，阈值: {}", paperIds.size(), threshold);
 
+        // 先找出没有向量的论文，自动生成
+        List<Long> existingEmbeddingIds = paperEmbeddingRepository.findByPaperIdIn(paperIds)
+                .stream()
+                .map(PaperEmbedding::getPaperId)
+                .collect(Collectors.toList());
+        List<Long> missingEmbeddingIds = paperIds.stream()
+                .filter(id -> !existingEmbeddingIds.contains(id))
+                .collect(Collectors.toList());
+        
+        if (!missingEmbeddingIds.isEmpty()) {
+            log.info("发现 {} 篇文献没有向量，正在自动生成...", missingEmbeddingIds.size());
+            try {
+                int generated = paperEmbeddingService.batchGenerateEmbedding(missingEmbeddingIds);
+                log.info("成功生成 {} 个向量", generated);
+            } catch (Exception e) {
+                log.error("自动生成向量失败: {}", e.getMessage());
+            }
+        }
+
         List<Paper> papers = paperRepository.findAllById(paperIds);
         Map<Long, Paper> paperMap = papers.stream()
                 .collect(Collectors.toMap(Paper::getId, p -> p));
@@ -63,6 +84,7 @@ public class GraphServiceImpl implements GraphService {
                 double[] vector = parseEmbeddingVector(embedding.getEmbeddingVector());
                 if (vector != null) {
                     embeddingMap.put(embedding.getPaperId(), vector);
+                    log.info("论文 {} 向量解析成功，维度: {}", embedding.getPaperId(), vector.length);
                 }
             } catch (Exception e) {
                 log.error("论文 {} 向量解析失败", embedding.getPaperId());
@@ -105,6 +127,14 @@ public class GraphServiceImpl implements GraphService {
                 if (v1 == null || v2 == null) continue;
 
                 double sim = cosineSimilarity(v1, v2);
+                Paper paperA = paperMap.get(a);
+                Paper paperB = paperMap.get(b);
+                
+                log.info("相似度计算 - [{}] vs [{}] = {}", 
+                    paperA != null ? paperA.getTitle() : a, 
+                    paperB != null ? paperB.getTitle() : b, 
+                    sim);
+                
                 if (sim >= threshold) {
                     edges.add(GraphDTO.Edge.builder()
                             .source(String.valueOf(a))
@@ -120,69 +150,6 @@ public class GraphServiceImpl implements GraphService {
         return GraphDTO.builder().nodes(nodes).edges(edges).build();
     }
 
-    // ====================== 模拟向量（不依赖AI，直接生成测试向量）======================
-    @Transactional
-    @Override
-    public void generateAndSaveEmbedding(Long paperId) {
-        Paper paper = paperRepository.findById(paperId)
-                .orElseThrow(() -> new RuntimeException("论文不存在"));
-
-        if (paperEmbeddingRepository.existsByPaperId(paperId)) {
-            log.info("论文{}已存在向量", paperId);
-            return;
-        }
-
-        // 生成测试向量（本地生成，不调用AI）
-        List<Double> testVector = generateTestVector(384);
-
-        try {
-            String json = objectMapper.writeValueAsString(testVector);
-
-            // 不用 Lombok Builder，手动 new 绝对不报错
-            PaperEmbedding em = new PaperEmbedding();
-            em.setPaperId(paperId);
-            em.setEmbeddingVector(json);
-            em.setVectorDimension(384);
-            em.setModelName("test-vector");
-
-            paperEmbeddingRepository.save(em);
-            log.info("论文{} 测试向量已保存到数据库", paperId);
-
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("向量保存失败");
-        }
-    }
-
-    // 本地生成测试向量，完全不依赖外部服务
-    private List<Double> generateTestVector(int dim) {
-        List<Double> vec = new ArrayList<>();
-        for (int i = 0; i < dim; i++) {
-            vec.add(Math.random() * 2 - 1);
-        }
-        return vec;
-    }
-
-    @Transactional
-    @Override
-    public int batchGenerateEmbedding(List<Long> paperIds) {
-        int count = 0;
-        for (Long id : paperIds) {
-            try {
-                generateAndSaveEmbedding(id);
-                count++;
-            } catch (Exception e) {
-                log.error("论文{} 向量生成失败", id);
-            }
-        }
-        return count;
-    }
-
-    @Override
-    public boolean hasEmbedding(Long paperId) {
-        return paperEmbeddingRepository.existsByPaperId(paperId);
-    }
-
-    // ====================== 工具方法 ======================
     private double cosineSimilarity(double[] v1, double[] v2) {
         if (v1 == null || v2 == null || v1.length != v2.length) return 0;
         double dot = 0, n1 = 0, n2 = 0;
@@ -196,13 +163,19 @@ public class GraphServiceImpl implements GraphService {
     }
 
     private double[] parseEmbeddingVector(String json) {
-        if (json == null || json.isBlank()) return null;
+        if (json == null || json.isBlank()) {
+            log.warn("向量JSON为空");
+            return null;
+        }
         try {
+            log.info("解析向量JSON，长度: {}", json.length());
             Double[] arr = objectMapper.readValue(json, Double[].class);
             double[] res = new double[arr.length];
             for (int i = 0; i < arr.length; i++) res[i] = arr[i];
+            log.info("向量解析成功，维度: {}", arr.length);
             return res;
         } catch (Exception e) {
+            log.error("向量JSON解析失败: {}", e.getMessage(), e);
             return null;
         }
     }

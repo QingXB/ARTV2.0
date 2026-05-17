@@ -60,6 +60,24 @@ public class PaperController {
         }
     }
 
+    @PostMapping("/upload-batch")
+    public Result<List<Paper>> uploadPapers(
+            @RequestParam("files") List<MultipartFile> files,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) {
+            return Result.error("未登录或Token无效");
+        }
+        try {
+            List<Paper> savedPapers = paperService.uploadPapers(files, userId);
+            log.info("用户 {} 批量上传了 {} 篇文献", userId, savedPapers.size());
+            return Result.success(savedPapers);
+        } catch (Exception e) {
+            log.error("批量上传失败: {}", e.getMessage());
+            return Result.error("批量上传失败：" + e.getMessage());
+        }
+    }
+
     @GetMapping("/list")
     public Result<PageDTO<Paper>> getPaperList(
             @RequestHeader(value = "Authorization", required = false) String authHeader,

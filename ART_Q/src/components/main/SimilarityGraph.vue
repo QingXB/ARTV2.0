@@ -29,6 +29,9 @@
       <span class="toolbar-item" @click="resetSelection">
         🗑️ 清除选择
       </span>
+      <span class="toolbar-item regenerate-btn" @click="regenerateAllEmbeddings" :class="{ loading: isRegenerating }">
+        {{ isRegenerating ? '⏳ 正在重新生成...' : '🔄 重新计算所有向量' }}
+      </span>
     </div>
 
     <div ref="chartRef" class="chart-container"></div>
@@ -41,6 +44,8 @@
           <button type="button" @click="removeFromSelection(node.id)">×</button>
         </div>
       </div>
+    </div>
+    <div v-if="selectedNodes.length > 0" class="send-btn-container">
       <button type="button" class="send-btn" :class="{ disabled: selectedNodes.length < 2 }" :disabled="selectedNodes.length < 2" @click="sendToReview">
         📝 发送 {{ selectedNodes.length }} 篇到综述
       </button>
@@ -54,26 +59,80 @@ import request from '@/utils/request';
 const emit = defineEmits(['sendToReview']);
 const chartRef = ref(null);
 let chartInstance = null;
-const threshold = ref(0.5);
+const threshold = ref(0.85);
 const isSelecting = ref(false);
 const selectedNodes = ref([]);
 const graphData = ref({ nodes: [], edges: [] });
+const isRegenerating = ref(false);
+const allPapers = ref([]);
 const loadGraph = async () => {
  try {
+ console.log('🔄 开始加载图谱数据...');
  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
  const res = await request.get(`/api/graph/similarity?threshold=${threshold.value}`, {
  headers: { 'Authorization': `Bearer ${token}` }
  });
+ console.log('📊 后端返回的原始数据:', res);
  graphData.value = res;
+ console.log('🟢 节点数:', res.nodes?.length, '边数:', res.edges?.length);
  renderChart();
  }
  catch (error) {
- console.error('加载图谱失败:', error);
+ console.error('❌ 加载图谱失败:', error);
+ alert('加载图谱失败，请检查控制台日志');
  }
 };
 const refreshGraph = () => {
  loadGraph();
 };
+
+const loadAllPapers = async () => {
+ try {
+ const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+ const res = await request.get('/api/papers/list?page=0&size=100', {
+ headers: { 'Authorization': `Bearer ${token}` }
+ });
+ allPapers.value = res.content || [];
+ console.log('📚 加载到的文献列表:', allPapers.value);
+ }
+ catch (error) {
+ console.error('❌ 加载文献列表失败:', error);
+ }
+};
+
+const regenerateAllEmbeddings = async () => {
+ if (isRegenerating.value) return;
+ if (!confirm('⚠️ 确定要重新计算所有向量吗？这会清空已有的向量并调用API重新生成。')) {
+ return;
+ }
+ isRegenerating.value = true;
+ try {
+ await loadAllPapers();
+ const parsedPapers = allPapers.value.filter(p => p.parseStatus === 2);
+ if (parsedPapers.length === 0) {
+ alert('⚠️ 没有已解析的文献');
+ isRegenerating.value = false;
+ return;
+ }
+ const paperIds = parsedPapers.map(p => p.id);
+ console.log('🚀 开始重新计算所有向量:', paperIds);
+ const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+ await request.post('/api/graph/embedding/regenerate', 
+ { paperIds: paperIds },
+ { headers: { 'Authorization': `Bearer ${token}` } }
+ );
+ alert('✅ 所有向量重新计算完成！正在刷新图谱...');
+ await loadGraph();
+ }
+ catch (error) {
+ console.error('❌ 重新计算向量失败:', error);
+ alert('重新计算失败，请检查控制台日志');
+ }
+ finally {
+ isRegenerating.value = false;
+ }
+};
+
 const toggleSelectMode = (mode) => {
  isSelecting.value = mode;
  if (chartInstance) {
@@ -152,19 +211,27 @@ const sendToReview = () => {
  emit('sendToReview', paperIds);
 };
 const renderChart = () => {
- if (!chartInstance)
+ console.log('🎨 renderChart被调用');
+ console.log('📈 graphData.value:', graphData.value);
+ if (!chartInstance) {
+ console.warn('⚠️ chartInstance不存在');
  return;
+ }
+ if (!graphData.value.nodes || graphData.value.nodes.length === 0) {
+ console.warn('⚠️ 没有节点数据');
+ return;
+ }
  const nodes = graphData.value.nodes.map(node => ({
  id: parseInt(node.id),
  name: `Paper_${node.id}`,
- symbolSize: 30 + (node.summary?.length || 0) / 20,
+ symbolSize: 20 + (node.summary?.length || 0) / 40,
  category: node.category || 0,
  itemStyle: {
  color: getNodeColor(node)
  },
  label: {
  show: true,
- fontSize: 12,
+ fontSize: 11,
  formatter: (params) => {
  const title = node.title || '';
  return title.length > 10 ? title.substring(0, 10) + '...' : title;
@@ -177,29 +244,55 @@ const renderChart = () => {
  target: edge.target,
  value: edge.weight,
  lineStyle: {
- width: edge.weight * 8,
+ width: edge.weight * 4,
  color: getEdgeColor(edge.weight),
  opacity: 0.6 + edge.weight * 0.4
  }
  }));
+ console.log('✅ 准备渲染，节点数:', nodes.length, '边数:', edges.length);
  const option = {
  backgroundColor: 'transparent',
  tooltip: {
- trigger: 'item',
- backgroundColor: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
- borderColor: 'rgba(99, 102, 241, 0.2)',
- borderWidth: 1,
- padding: [12, 16],
- width: 300,
- align: 'left',
- textStyle: {
- color: '#1e293b',
- fontSize: 13,
- lineHeight: 1.6,
- whiteSpace: 'normal',
- textAlign: 'left'
- },
- extraCssText: 'border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); backdrop-filter: blur(10px); max-width: 320px; text-align: left;',
+    trigger: 'item',
+    backgroundColor: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+    borderColor: 'rgba(99, 102, 241, 0.2)',
+    borderWidth: 1,
+    padding: [12, 16],
+    confine: true,
+    appendToBody: true,
+    transitionDuration: 0.1,
+    enterable: false,
+    showDelay: 100,
+    hideDelay: 100,
+    position: (point, params, dom, rect, size) => {
+      const x = point[0];
+      const y = point[1];
+      const boxWidth = size.viewSize[0];
+      const boxHeight = size.viewSize[1];
+      
+      let posX = x + 40;
+      let posY = y - 20;
+      
+      if (posX + 300 > boxWidth) {
+        posX = x - 340;
+      }
+      if (posY < 0) {
+        posY = 10;
+      }
+      if (posY + 300 > boxHeight) {
+        posY = boxHeight - 310;
+      }
+      
+      return [posX, posY];
+    },
+    textStyle: {
+      color: '#1e293b',
+      fontSize: 13,
+      lineHeight: 1.6,
+      whiteSpace: 'normal',
+      textAlign: 'left'
+    },
+    extraCssText: 'border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); backdrop-filter: blur(10px); max-width: 300px; text-align: left; z-index: 9999; pointer-events: none;',
  formatter: (params) => {
  if (params.dataType === 'node') {
  const node = params.data.data;
@@ -277,10 +370,10 @@ const renderChart = () => {
  emphasis: {
  focus: 'adjacency',
  lineStyle: {
- width: 10
+ width: 5
  },
  itemStyle: {
- shadowBlur: 20,
+ shadowBlur: 15,
  shadowColor: 'rgba(99, 102, 241, 0.5)'
  }
  },
@@ -486,15 +579,34 @@ watch(threshold, () => {
   color: white;
 }
 
+.regenerate-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+  color: white !important;
+  font-weight: 500;
+}
+
+.regenerate-btn:hover {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%) !important;
+}
+
+.regenerate-btn.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .chart-container {
   flex: 1;
   min-height: 400px;
+  position: relative;
+  z-index: 1;
 }
 
 .selected-panel {
   padding: 12px 20px;
   background: #fef3c7;
   border-top: 1px solid #fcd34d;
+  position: relative;
+  z-index: 10;
 }
 
 .selected-panel h4 {
@@ -542,9 +654,17 @@ watch(threshold, () => {
   color: white;
 }
 
+.send-btn-container {
+  padding: 12px 20px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  position: relative;
+  z-index: 10;
+}
+
 .send-btn {
-  margin-top: 12px;
-  margin-left: auto;
   padding: 8px 20px;
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   color: white;

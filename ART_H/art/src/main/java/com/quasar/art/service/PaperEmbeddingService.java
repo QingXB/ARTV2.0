@@ -8,5 +8,7 @@ public interface PaperEmbeddingService {
     
     int batchGenerateEmbedding(List<Long> paperIds);
     
+    int regenerateEmbeddings(List<Long> paperIds);
+    
     boolean hasEmbedding(Long paperId);
 }

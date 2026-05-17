@@ -532,7 +532,8 @@ const fetchPapers = async (page = 0, size = 10) => {
     totalPages.value = res.totalPages || 1
     currentPage.value = res.page || page
 
-    if (papers.value && papers.value.length > 0) {
+    // 只有当用户当前在 detail tab，并且还没有选中任何文献时，才自动选中第一篇
+    if (papers.value && papers.value.length > 0 && activeTab.value === 'detail' && !selectedPaper.value) {
       selectPaper(papers.value[0])
     }
 
@@ -564,7 +565,34 @@ const parseAllPapers = async () => {
       headers: { 'Authorization': `Bearer ${token}` }
     })
     alert(`已提交 ${unparsedPapers.length} 篇文献的解析任务，请耐心等待...`)
-    await fetchPapers()
+    
+    // 🌟 开始轮询更新状态
+    let pollCount = 0
+    const maxPolls = 120 // 最多轮询10分钟
+    
+    const pollInterval = setInterval(async () => {
+      pollCount++
+      try {
+        await fetchPapers()
+        
+        // 检查是否还有解析中的文献
+        const stillParsing = papers.value.some(p => p.parseStatus === 1)
+        const stillUnparsed = papers.value.some(p => p.parseStatus === 0)
+        
+        if (!stillParsing && !stillUnparsed) {
+          clearInterval(pollInterval)
+          alert('✅ 所有文献解析完成！')
+        }
+        
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval)
+          console.log('⏰ 轮询超时')
+        }
+      } catch (e) {
+        console.error('轮询状态失败:', e)
+      }
+    }, 5000) // 每5秒刷新一次
+    
   } catch (error) {
     console.error('批量解析失败:', error)
     alert('批量解析失败，请重试')
@@ -584,29 +612,32 @@ const handleFileUpload = async (event) => {
 
   const formData = new FormData()
   for (let i = 0; i < files.length; i++) {
-    formData.append('file', files[i]) 
+    formData.append('files', files[i]) 
   }
 
   try {
     isUploading.value = true
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
-    // 1. 发送上传请求
-    await request.post('/api/papers/upload', formData, {
+    // 1. 发送批量上传请求
+    const response = await request.post('/api/papers/upload-batch', formData, {
       headers: { 
         'Content-Type': 'multipart/form-data', 
         'Authorization': `Bearer ${token}` 
       }
     })
     
+    const uploadedCount = Array.isArray(response) ? response.length : (response.data ? response.data.length : 0);
+    
     // 2. 成功提示
-    alert('✅ 文献上传成功！点击列表中的“解析”按钮即可开始分析。')
+    alert(`✅ 成功上传了 ${uploadedCount} 篇文献！点击列表中的“解析”按钮即可开始分析。`)
     
     // 3. 🌟 关键：只刷新列表
     await fetchPapers(0, pageSize.value)
 
   } catch (error) {
     console.error('上传失败:', error)
+    alert('❌ 上传失败，请重试！')
   } finally {
     isUploading.value = false
     fileInput.value.value = '' // 清空，方便下次上传
@@ -923,7 +954,7 @@ const handleSendToReview = (paperIds) => {
    * 左侧栏 - 文献库
    * ============================================ */
   .left-panel {
-    width: 340px;
+    width: 380px;
     background: var(--surface);
     border-right: 1px solid var(--border-subtle);
     display: flex;
@@ -977,12 +1008,14 @@ const handleSendToReview = (paperIds) => {
   }
   .search-input {
     width: 100%;
-    padding: 8px 12px;
+    padding: 10px 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: 14px;
     outline: none;
     transition: var(--transition);
+    min-height: 40px;
+    box-sizing: border-box;
   }
   .search-input:focus {
     border-color: var(--primary);
@@ -990,13 +1023,15 @@ const handleSendToReview = (paperIds) => {
   }
   .filter-select {
     width: 100%;
-    padding: 8px 12px;
+    padding: 10px 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: 14px;
     background: var(--surface);
     cursor: pointer;
     outline: none;
+    min-height: 40px;
+    box-sizing: border-box;
   }
   .btn-upload:hover {
     background: var(--gradient-hover);

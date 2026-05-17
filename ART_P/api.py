@@ -421,11 +421,12 @@ def generate_embedding(req: EmbeddingRequest):
         if not req.text.strip():
             raise ValueError("文本内容不能为空")
 
-        # 调用 Embedding API
-        # 注意：使用 OpenAI-compatible 的 embedding 接口
+        # 使用传入的模型，不做自动替换
+        model_to_use = req.model
+        print(f"🚀 正在调用 Embedding API，使用模型: {model_to_use}")
         response = config.client.embeddings.create(
             input=req.text,
-            model=req.model
+            model=model_to_use
         )
 
         # 提取向量数据
@@ -439,7 +440,7 @@ def generate_embedding(req: EmbeddingRequest):
             "data": embedding,
             "message": "向量化成功",
             "dimension": dimension,
-            "model": req.model
+            "model": model_to_use
         }
 
     except httpx.TimeoutException as e:
