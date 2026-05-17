@@ -23,3 +23,6 @@ node_modules/
 backups/
 script/.logs/
 script/.deploy-local.pids
+ART_H/art/paper/b7e7f860-9c64-4261-9585-c9b2518c9dfb.pdf
+
+ART_H/art/paper/*.pdf
