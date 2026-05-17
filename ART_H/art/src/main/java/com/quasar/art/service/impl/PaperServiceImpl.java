@@ -60,48 +60,48 @@ public class PaperServiceImpl implements PaperService {
     private String uploadDir;
 
     @Override
-    public Paper uploadPaper(MultipartFile file, Long userId) {
-        if (file.isEmpty()) {
+    public List<Paper> uploadPaper(MultipartFile[] files, Long userId) {
+        if (files == null || files.length == 0) {
             throw new RuntimeException("上传的 PDF 文件不能为空");
         }
 
-        try {
-            // 1. 确保目录存在（如果没有 paper 文件夹，系统会自动建一个）
-            Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
+        Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+        if (!Files.exists(uploadPath)) {
+            try { Files.createDirectories(uploadPath); } catch (IOException e) {
+                throw new RuntimeException("无法创建上传目录", e);
             }
-
-            // 2. 获取原始文件名并提取后缀 (例如 "attention.pdf" -> ".pdf")
-            String originalFilename = file.getOriginalFilename();
-            String fileExtension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
-            }
-            
-            // 为了防止重名，使用 UUID 生成一个新的物理文件名
-            String newFileName = UUID.randomUUID().toString() + fileExtension;
-
-            // 3. 把文件真正存入硬盘
-            Path targetLocation = uploadPath.resolve(newFileName);
-            file.transferTo(targetLocation.toFile());
-
-            // 4. 将记录存入 PostgreSQL 数据库
-            Paper paper = new Paper();
-            paper.setUserId(userId);
-            paper.setTitle(originalFilename); // 暂用原文件名当标题，后续可以被 AI 修正
-            
-            // 🌟 修正 2：核心改变！只存 UUID 文件名，绝对不存 C:\ 等绝对路径
-            paper.setFilePath(newFileName); 
-            
-            paper.setParseStatus(0); // 0代表未解析，等着 Python 来接手
-
-            // 保存到数据库并返回
-            return paperRepository.save(paper);
-
-        } catch (IOException ex) {
-            throw new RuntimeException("无法保存文件，请检查目录权限!", ex);
         }
+
+        List<Paper> savedPapers = new ArrayList<>();
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) continue;
+
+            try {
+                String originalFilename = file.getOriginalFilename();
+                String fileExtension = "";
+                if (originalFilename != null && originalFilename.contains(".")) {
+                    fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
+                }
+
+                String newFileName = UUID.randomUUID().toString() + fileExtension;
+                Path targetLocation = uploadPath.resolve(newFileName);
+                file.transferTo(targetLocation.toFile());
+
+                Paper paper = new Paper();
+                paper.setUserId(userId);
+                paper.setTitle(originalFilename);
+                paper.setFilePath(newFileName);
+                paper.setParseStatus(0);
+                savedPapers.add(paperRepository.save(paper));
+            } catch (IOException ex) {
+                log.error("文件 {} 保存失败: {}", file.getOriginalFilename(), ex.getMessage());
+            }
+        }
+
+        if (savedPapers.isEmpty()) {
+            throw new RuntimeException("所有文件上传失败，请检查文件和目录权限");
+        }
+        return savedPapers;
     }
 
     @Override

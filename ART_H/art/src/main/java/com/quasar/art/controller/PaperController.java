@@ -43,17 +43,17 @@ public class PaperController {
     }
 
     @PostMapping("/upload")
-    public Result<Paper> uploadPaper(
-            @RequestParam("file") MultipartFile file,
+    public Result<List<Paper>> uploadPaper(
+            @RequestParam("file") MultipartFile[] files,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long userId = getUserIdFromToken(authHeader);
         if (userId == null) {
             return Result.error("未登录或Token无效");
         }
         try {
-            Paper savedPaper = paperService.uploadPaper(file, userId);
-            log.info("用户 {} 上传文献: {}", userId, savedPaper.getTitle());
-            return Result.success(savedPaper);
+            List<Paper> savedPapers = paperService.uploadPaper(files, userId);
+            log.info("用户 {} 上传 {} 篇文献", userId, savedPapers.size());
+            return Result.success(savedPapers);
         } catch (Exception e) {
             log.error("上传失败: {}", e.getMessage());
             return Result.error("文件上传失败：" + e.getMessage());

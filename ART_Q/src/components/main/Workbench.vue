@@ -619,18 +619,17 @@ const handleFileUpload = async (event) => {
     isUploading.value = true
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
-    // 1. 发送批量上传请求
-    const response = await request.post('/api/papers/upload-batch', formData, {
-      headers: { 
-        'Content-Type': 'multipart/form-data', 
-        'Authorization': `Bearer ${token}` 
+    // 1. 发送上传请求
+    const res = await request.post('/api/papers/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'Authorization': `Bearer ${token}`
       }
     })
-    
-    const uploadedCount = Array.isArray(response) ? response.length : (response.data ? response.data.length : 0);
-    
+
     // 2. 成功提示
-    alert(`✅ 成功上传了 ${uploadedCount} 篇文献！点击列表中的“解析”按钮即可开始分析。`)
+    const count = Array.isArray(res) ? res.length : files.length
+    alert(`✅ 成功上传 ${count} 篇文献！点击列表中的”解析”按钮即可开始分析。`)
     
     // 3. 🌟 关键：只刷新列表
     await fetchPapers(0, pageSize.value)
