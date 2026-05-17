@@ -80,7 +80,7 @@ if not DEEPSEEK_API_KEY:
 # DeepSeek 官方: https://api.deepseek.com
 # 国内代理/中转站: https://yunai.chat (你当前使用的)
 # 如果你使用官方 API，填入 https://api.deepseek.com
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://yunai.chat/v1")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 
 # 使用的模型名称
 # 常用模型:

@@ -31,6 +31,8 @@ services:
       - ./ART_H/art/paper:/app/paper
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your-api-key-here}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
     mem_limit: 512m
     networks:
       - art-network
