@@ -1,20 +1,18 @@
 # ART_H - Java Spring Boot 后端
-# 使用你本地已经下载好的基础镜像，绕过 429 限流
-FROM eclipse-temurin:21-jdk-alpine AS builder
+# 直接用官方 Maven 镜像（自带 JDK + Maven），省掉 apk install 等待
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 
 WORKDIR /app
 
-# 【关键新增】：将 Alpine 的软件源替换为阿里云源，解决国内下载 maven 慢/卡死的问题
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-
-# 复制 Maven 相关文件
-COPY ART_H/art/pom.xml .
-COPY ART_H/art .
+# 复制 Maven 配置（阿里云镜像加速）
 COPY ART_H/settings.xml /root/.m2/settings.xml
 
-# 现在使用阿里云源安装 maven 会非常快，不会再卡住 7 分钟了
-RUN apk add --no-cache maven && \
-    mvn clean package -DskipTests
+# 复制源码
+COPY ART_H/art/pom.xml .
+COPY ART_H/art .
+
+# 直接构建，无需额外安装任何东西
+RUN mvn clean package -DskipTests -B
 
 # 运行阶段
 FROM eclipse-temurin:21-jre-alpine
