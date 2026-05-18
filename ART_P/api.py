@@ -82,7 +82,7 @@ class EmbeddingRequest(BaseModel):
         model: 可选，使用的模型名称
     """
     text: str
-    model: str = "text-embedding-3-small"
+    model: str = "text-embedding-ada-002"
 
 # ============================================================
 # 3. API 接口实现

@@ -145,16 +145,24 @@ client = OpenAI(
 )
 
 # Embedding 专用客户端（DeepSeek 不支持 embedding，需要单独配置）
-EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "sk-xwffdzenucgssipmchllxhstwccflrhgiliplyvpmxjfdbox")
-EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "https://api.openai.com/v1")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-ada-002")
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "sk-euTRGO3zwvrKExz6Y7tShOtBg5Hc27lVkZyAcxCZdoY1PVZc")
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "https://yunai.chat/v1")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+# Embedding 专用 httpx 客户端（embedding 速度快，不需要 120 秒长超时）
+embedding_http_client = httpx.Client(
+    proxy=HTTPS_PROXY if HTTPS_PROXY and HTTPS_PROXY.lower() not in ("", "none", "false") else None,
+    timeout=httpx.Timeout(30, connect=10),
+    follow_redirects=True,
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5)
+)
 
 embedding_client = OpenAI(
     api_key=EMBEDDING_API_KEY,
     base_url=EMBEDDING_BASE_URL,
-    http_client=http_client,
-    max_retries=MAX_RETRIES,
-    timeout=REQUEST_TIMEOUT
+    http_client=embedding_http_client,
+    max_retries=1,
+    timeout=30
 )
 
 # ============================================================

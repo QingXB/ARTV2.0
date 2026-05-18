@@ -44,8 +44,7 @@ public class PaperEmbeddingServiceImpl implements PaperEmbeddingService {
     @Value("${ai.python.api.url}")
     private String pythonApiUrl;
 
-    // 尝试多种通用的embedding模型名称，大多数中转商都支持
-    private static final String EMBEDDING_MODEL = "text-embedding-ada-002";
+    private static final String EMBEDDING_MODEL = "text-embedding-3-small";
 
     @Override
     public void generateAndSaveEmbedding(Long paperId) {

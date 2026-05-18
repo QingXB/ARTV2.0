@@ -19,8 +19,8 @@
             <button class="btn-upload" @click="triggerUpload" :disabled="isUploading">
               <i class="icon-plus"></i> {{ isUploading ? '上传中...' : '上传 PDF' }}
             </button>
-            <button class="btn-batch-parse" @click="parseAllPapers" title="一键解析所有待解析文献">
-              🔥 批量解析
+            <button class="btn-batch-parse" @click="parseAllPapers" :disabled="isBatchParsing" title="一键解析所有待解析文献">
+              {{ isBatchParsing ? `⏳ 解析中 (${batchParsedCount}/${batchTotalCount})` : '🔥 批量解析' }}
             </button>
           </div>
 
@@ -507,6 +507,9 @@ const selectPaper = async (paper) => {
   const totalPapers = ref(0)
   const totalPages = ref(0)
   const isLoading = ref(false)
+  const isBatchParsing = ref(false)
+  const batchParsedCount = ref(0)
+  const batchTotalCount = ref(0)
   
   // 触发原生上传点击
   const triggerUpload = () => {
@@ -560,41 +563,54 @@ const parseAllPapers = async () => {
   if (!confirm(`确定要批量解析 ${unparsedPapers.length} 篇文献吗？`)) return
 
   try {
+    isBatchParsing.value = true
+    batchTotalCount.value = unparsedPapers.length
+    batchParsedCount.value = 0
+
+    // 乐观更新：立即将所有待解析文献标记为"解析中"
+    unparsedPapers.forEach(p => { p.parseStatus = 1 })
+
     const token = localStorage.getItem('token') || sessionStorage.getItem('token')
     await request.post('/api/papers/parse-all', {}, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-    alert(`已提交 ${unparsedPapers.length} 篇文献的解析任务，请耐心等待...`)
-    
-    // 🌟 开始轮询更新状态
+
+    // 轮询更新状态
     let pollCount = 0
-    const maxPolls = 120 // 最多轮询10分钟
-    
+    const maxPolls = 120
+
     const pollInterval = setInterval(async () => {
       pollCount++
       try {
         await fetchPapers()
-        
-        // 检查是否还有解析中的文献
+
+        // 统计已完成数量
+        batchParsedCount.value = papers.value.filter(p => p.parseStatus === 2 || p.parseStatus === 3).length
+
         const stillParsing = papers.value.some(p => p.parseStatus === 1)
         const stillUnparsed = papers.value.some(p => p.parseStatus === 0)
-        
+
         if (!stillParsing && !stillUnparsed) {
           clearInterval(pollInterval)
-          alert('✅ 所有文献解析完成！')
+          isBatchParsing.value = false
+          const successCount = papers.value.filter(p => p.parseStatus === 2).length
+          const failCount = papers.value.filter(p => p.parseStatus === 3).length
+          alert(`✅ 批量解析完成！成功 ${successCount} 篇${failCount > 0 ? `，失败 ${failCount} 篇` : ''}`)
         }
-        
+
         if (pollCount >= maxPolls) {
           clearInterval(pollInterval)
+          isBatchParsing.value = false
           console.log('⏰ 轮询超时')
         }
       } catch (e) {
         console.error('轮询状态失败:', e)
       }
-    }, 5000) // 每5秒刷新一次
-    
+    }, 5000)
+
   } catch (error) {
     console.error('批量解析失败:', error)
+    isBatchParsing.value = false
     alert('批量解析失败，请重试')
   }
 }
@@ -993,9 +1009,14 @@ const handleSendToReview = (paperIds) => {
     cursor: pointer;
     transition: var(--transition);
   }
-  .btn-batch-parse:hover {
+  .btn-batch-parse:hover:not(:disabled) {
     background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
     transform: translateY(-1px);
+  }
+  .btn-batch-parse:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+    transform: none;
   }
 
   .search-section {

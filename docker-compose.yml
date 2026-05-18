@@ -30,9 +30,38 @@ services:
       - ./ART_P:/app
       - ./ART_H/art/paper:/app/paper
     environment:
+      # AI 服务
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your-api-key-here}
-      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://yunai.chat/v1}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      # Embedding
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-sk-euTRGO3zwvrKExz6Y7tShOtBg5Hc27lVkZyAcxCZdoY1PVZc}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://yunai.chat/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      # 网络代理
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-*}
+      # 超时与重试
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-120}
+      CONNECT_TIMEOUT: ${CONNECT_TIMEOUT:-30}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      RETRY_DELAY: ${RETRY_DELAY:-1.0}
+      # 应用
+      APP_PORT: ${APP_PORT:-8000}
+      APP_HOST: ${APP_HOST:-0.0.0.0}
+      DEBUG_MODE: ${DEBUG_MODE:-false}
+      # PDF
+      PDF_MAX_PAGES: ${PDF_MAX_PAGES:-5}
+      PDF_FILTER_HEADER_FOOTER: ${PDF_FILTER_HEADER_FOOTER:-true}
+      # AI 参数
+      PARSE_TEMPERATURE: ${PARSE_TEMPERATURE:-0.3}
+      PARSE_MAX_TOKENS: ${PARSE_MAX_TOKENS:-1000}
+      REVIEW_TEMPERATURE: ${REVIEW_TEMPERATURE:-0.7}
+      REVIEW_MAX_TOKENS: ${REVIEW_MAX_TOKENS:-4000}
+      # 日志
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      COLORED_LOG: ${COLORED_LOG:-true}
     mem_limit: 512m
     networks:
       - art-network
