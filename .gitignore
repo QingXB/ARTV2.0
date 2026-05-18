@@ -8,3 +8,5 @@ ART_P/venv/
 ART_P/__pycache__/
 script/.logs/
 script/.deploy-local.pids
+
+ART_H/art/paper/*.pdf

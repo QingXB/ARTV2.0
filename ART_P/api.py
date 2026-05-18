@@ -82,7 +82,7 @@ class EmbeddingRequest(BaseModel):
         model: 可选，使用的模型名称
     """
     text: str
-    model: str = "text-embedding-3-small"
+    model: str = "text-embedding-ada-002"
 
 # ============================================================
 # 3. API 接口实现
@@ -421,10 +421,10 @@ def generate_embedding(req: EmbeddingRequest):
         if not req.text.strip():
             raise ValueError("文本内容不能为空")
 
-        # 使用传入的模型，不做自动替换
-        model_to_use = req.model
+        # 使用 embedding 专用客户端（DeepSeek 不支持 embedding）
+        model_to_use = config.EMBEDDING_MODEL
         print(f"🚀 正在调用 Embedding API，使用模型: {model_to_use}")
-        response = config.client.embeddings.create(
+        response = config.embedding_client.embeddings.create(
             input=req.text,
             model=model_to_use
         )
